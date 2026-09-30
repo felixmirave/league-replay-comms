@@ -3,6 +3,7 @@ import { extractFile, listPackage } from '@electron/asar';
 import { readFile, open, stat, writeFile, readdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { Data, NtExecutable, NtExecutableResource, Resource } from 'resedit';
 import { verifyNativeDirectory } from './windows-native.mjs';
 import { verifyNotices } from './notices.mjs';
 import { verifyPortablePayload } from './portable-payload.mjs';
@@ -10,6 +11,23 @@ import { verifyPortablePayload } from './portable-payload.mjs';
 const { version, commsValidation } = JSON.parse(await readFile('package.json', 'utf8'));
 const executable = `release/LeagueReplayComms-${version}-x64.exe`;
 assert((await stat(executable)).size > 1024 * 1024, 'Portable artifact is missing or incomplete');
+// Check the actual PE resources: a configured icon alone does not establish
+// that resource editing ran for both the portable launcher and Electron app.
+const icon = Data.IconFile.from(await readFile('build/icon.ico'));
+const iconBytes = item => Buffer.from(item.isRaw() ? item.bin : item.generate());
+for (const path of [executable, 'release/win-unpacked/League Replay Comms.exe']) {
+  const resources = NtExecutableResource.from(NtExecutable.from(await readFile(path)));
+  const group = Resource.IconGroupEntry.fromEntries(resources.entries)[0];
+  assert(group, `Missing application icon: ${path}`);
+  const actual = group.getIconItemsFromEntries(resources.entries);
+  assert.equal(actual.length, icon.icons.length, `Missing icon resolutions: ${path}`);
+  for (const { data } of icon.icons) {
+    // PE icon-group dimensions encode 256 pixels as zero.
+    assert(actual.some(item => (item.width || 256) === data.width && (item.height || 256) === data.height && iconBytes(item).equals(iconBytes(data))),
+      `Incorrect ${data.width}×${data.height} icon: ${path}`);
+  }
+}
+console.log(`Verified ${icon.icons.length} icon resolutions in the launcher and application executables.`);
 const packagedManifest = JSON.parse(extractFile('release/win-unpacked/resources/app.asar', 'package.json').toString('utf8'));
 const packagedFiles = listPackage('release/win-unpacked/resources/app.asar').map(name => name.replaceAll('\\', '/'));
 assert(!packagedFiles.some(name => name === '/node_modules' || name.startsWith('/node_modules/')), 'Redundant npm packages are present in the ASAR');

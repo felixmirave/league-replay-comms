@@ -24,6 +24,7 @@ import { diagnosticExport } from './diagnostics';
 import { GuidedWorkflow } from './workflow';
 
 app.setName('LeagueReplayComms');
+if (process.platform === 'win32') app.setAppUserModelId('local.leaguereplaycomms.desktop');
 // Apply an explicit profile before the instance lock or any durable writes.
 // Packaged validation uses the same switch instead of enabling development hooks.
 const explicitProfile = app.commandLine.hasSwitch('user-data-dir') ? app.commandLine.getSwitchValue('user-data-dir') : undefined;
@@ -144,6 +145,7 @@ const startupTask = app.whenReady().then(async () => {
   const resources = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources');
 
   window = new BrowserWindow({ show: false, width: 780, height: 820, minWidth: 560, minHeight: 640, backgroundColor: '#f2f4f8',
+    icon: join(__dirname, process.platform === 'win32' ? 'icon.ico' : '../renderer/icon.png'),
     webPreferences: { preload: join(__dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   const shown = new Promise<void>(resolve => window!.once('ready-to-show', () => {
     if (!preparingExit) window!.show();

@@ -139,6 +139,11 @@ services initialize. The launcher splash closes before Electron starts, so a bri
 gap between the two windows is possible. Edit `build/splash.svg` and run
 `npm run prepare:splash` in a desktop session to regenerate the checked-in bitmap;
 ordinary builds use that bitmap without needing image conversion or a desktop.
+The replay-headset artwork is shared by the splash and app header through
+`src/renderer/public/icon.png` (256×256). `build/icon.ico` contains the Windows
+sizes from 16 to 256 pixels and supplies both executable icons and the running
+window's icon. Windows resource editing stays enabled; only code signing is
+disabled. Regenerate the splash bitmap after changing the PNG.
 
 Release builds minify the main process and workers and omit source maps and npm
 packages already compiled into `dist`. The portable payload keeps English Electron
@@ -147,8 +152,9 @@ Browser OCR bundles, upstream manuals, and installer examples are omitted. A pac
 hook removes Electron's duplicate Chromium notices only after checking that the
 copy linked from the offline notices page is identical.
 
-`verify:artifact` checks the staged app against the current build/resources, then
-extracts the portable executable's embedded archive into a temporary directory.
+`verify:artifact` checks both executables' embedded icon resolutions and the staged
+app against the current build/resources, then extracts the portable executable's
+embedded archive into a temporary directory.
 It compares every extracted file with the staged build, including runtime libraries
 and notices, and removes the temporary copy. Verification needs roughly 1 GiB of
 additional disk space for the current payload. It writes SHA-256 and verification

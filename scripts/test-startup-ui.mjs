@@ -64,6 +64,7 @@ require(${JSON.stringify(resolve('dist/main/index.cjs'))});
 
 test('shows an animated loading screen before slow I/O and then opens the normal interface', { timeout: 30000 }, async t => {
   const { app, page } = await launch(t);
+  assert.equal(await page.locator('.startup-logo').evaluate(image => image.complete && image.naturalWidth === 256), true, 'The packaged logo must load on the startup screen');
   assert.equal(await page.locator('.startup-spinner').evaluate(element => getComputedStyle(element).animationName), 'startup-spin');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   assert.equal(await page.locator('.startup-spinner').evaluate(element => getComputedStyle(element).animationName), 'none');
@@ -78,6 +79,7 @@ test('shows an animated loading screen before slow I/O and then opens the normal
   await app.evaluate(() => globalThis.startupProbe.release());
   await page.waitForFunction(async () => (await window.review.snapshot()).startup === 'ready');
   await page.getByRole('button', { name: 'Settings', exact: true }).waitFor();
+  assert.equal(await page.locator('.app-brand img').evaluate(image => image.complete && image.naturalWidth === 256), true, 'The logo must remain available in the app header');
   assert.equal(await page.locator('.startup-spinner').count(), 0);
   await page.evaluate(() => window.review.command({ type: 'workflow', action: 'prepare' }));
   await page.getByRole('heading', { name: 'Choose your recording', exact: true }).waitFor();

@@ -1,6 +1,6 @@
 import { build } from 'esbuild';
 import { build as buildRenderer } from 'vite';
-import { rm } from 'node:fs/promises';
+import { copyFile, rm } from 'node:fs/promises';
 
 await rm('dist', { recursive: true, force: true });
 await build({
@@ -9,3 +9,4 @@ await build({
   platform: 'node', format: 'cjs', target: 'node22', external: ['electron'], minify: true,
 });
 await buildRenderer();
+await copyFile('build/icon.ico', 'dist/main/icon.ico');

@@ -98,10 +98,11 @@ function App() {
   };
   const visibleError = error || (setupState ? snapshot.setup?.error : library?.error) || snapshot.error || snapshot.audioOutput?.error;
   if (state === 'starting') return <main className="startup" aria-busy="true"><section className="startup-card" role="status">
-    <strong>League Replay Comms</strong><div className="startup-message"><span className="startup-spinner" aria-hidden="true" /><h1>{titles.starting}</h1></div><p>{descriptions.starting}</p>
+    <img className="startup-logo" src="./icon.png" width="104" height="104" alt="" />
+    <div className="startup-copy"><strong>League Replay Comms</strong><div className="startup-message"><span className="startup-spinner" aria-hidden="true" /><h1>{titles.starting}</h1></div><p>{descriptions.starting}</p></div>
   </section></main>;
   return <main>
-    <header><strong>League Replay Comms</strong><button className="text-button" onClick={() => setSettings(true)}>Settings</button></header>
+    <header><div className="app-brand"><img src="./icon.png" width="32" height="32" alt="" /><strong>League Replay Comms</strong></div><button className="text-button" onClick={() => setSettings(true)}>Settings</button></header>
     <div className="context"><span>{connected ? 'League connected' : 'League not connected'}</span>{library?.recording && <span className="filename" title={library.recording.path}>{library.recording.path.split(/[\\/]/).at(-1)}</span>}
       {library?.saveError && <div className="notice" role="status"><strong>Changes not saved.</strong> Your timing stays available in this session. <button className="text-button" disabled={busy} onClick={() => void command({ type: 'retry-save' })}>Retry saving</button><details><summary>Save details</summary><p>{library.saveError}</p></details></div>}
     </div>

@@ -35,7 +35,10 @@ does not establish successful Windows startup or audio output.
    followed by the main window's loading indicator if initialization is still
    running. Record the time to first feedback and any gap between the windows.
    Verify the splash is centered and readable at 100%, 150%, and 200% display
-   scaling. Close the main window during startup and confirm the process exits
+   scaling. Confirm the replay-headset icon appears on the portable EXE in
+   Explorer (small and large icons), the running taskbar button, the title bar,
+   and Alt+Tab, and matches the logo on both startup screens and the app header.
+   Close the main window during startup and confirm the process exits
    without reopening a window; launch again and confirm normal operation.
 2. Follow the current setup task. Verify detected installations and choose the
    correct one, including a custom drive or multiple installations. If detection

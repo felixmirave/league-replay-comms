@@ -84,10 +84,11 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "portable"
       ],
-      "signAndEditExecutable": false
+      "signExecutable": false
     },
     "portable": {
       "splashImage": "build/splash.bmp",

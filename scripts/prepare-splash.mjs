@@ -13,6 +13,9 @@ try {
 app.whenReady().then(() => { const window = new BrowserWindow({ show: false }); window.loadURL('about:blank'); });`);
   app = await electron.launch({ executablePath, args: [join(folder, 'main.cjs'), `--user-data-dir=${join(folder, 'profile')}`, ...(process.env.COMMS_TEST_NO_SANDBOX === '1' ? ['--no-sandbox'] : [])] });
   const page = await app.firstWindow();
+  // SVG loaded as an image cannot fetch external images; embed the shared logo.
+  const icon = await readFile('src/renderer/public/icon.png');
+  const svg = (await readFile('build/splash.svg', 'utf8')).replace('href="../src/renderer/public/icon.png"', `href="data:image/png;base64,${icon.toString('base64')}"`);
   const { width, height, rgba } = await page.evaluate(async svg => {
     const image = new Image();
     image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
@@ -22,7 +25,7 @@ app.whenReady().then(() => { const window = new BrowserWindow({ show: false }); 
     const context = canvas.getContext('2d');
     context.drawImage(image, 0, 0);
     return { width: canvas.width, height: canvas.height, rgba: Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data) };
-  }, await readFile('build/splash.svg', 'utf8'));
+  }, svg);
   // Windows BITMAPINFOHEADER, uncompressed 24-bit BGR with bottom-up rows.
   const stride = Math.ceil(width * 3 / 4) * 4;
   const bmp = Buffer.alloc(54 + stride * height);
