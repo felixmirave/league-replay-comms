@@ -11,7 +11,11 @@ for (const path of ['resources/bin/win32-x64/mpv.exe', 'resources/bin/win32-x64/
 const verified = JSON.parse(await readFile('resources/bin/win32-x64/verified.json', 'utf8'));
 const manifest = JSON.parse(await readFile('resources/native-manifest.json', 'utf8'));
 if (JSON.stringify(verified.artifacts) !== JSON.stringify(manifest.artifacts.map(a => a.sha256))) throw new Error('Prepared native resources do not match the pinned manifest');
-for (const name of manifest.artifacts.flatMap(a => a.requiredFiles)) {
+const nativeFiles = manifest.artifacts.flatMap(a => a.requiredFiles).sort();
+assert.deepEqual(Object.keys(verified.files).sort(), nativeFiles, 'Native checksums differ from the manifest');
+assert.deepEqual((await readdir('resources/bin/win32-x64')).sort(), [...nativeFiles, 'verified.json'].sort(),
+  'Unexpected native files. Run npm run prepare:native.');
+for (const name of nativeFiles) {
   const path = `resources/bin/win32-x64/${name}`;
   const file = await readFile(path);
   if (file[0] !== 0x4d || file[1] !== 0x5a) throw new Error(`Not a Windows executable: ${path}`);

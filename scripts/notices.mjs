@@ -117,7 +117,7 @@ ${component.files.map(file => `<details><summary>${escapeHtml(file.name)}</summa
 <h1>Third-party notices</h1>
 <p>League Replay Comms uses the components listed below. Complete collected texts are available offline here and in the neighboring files; upstream links require a connection. This inventory records collected notices and known gaps. It does not certify complete corresponding-source coverage.</p>
 <p>The local Tesseract.js Node worker was bundled with esbuild and a banner that disables runtime fetch. Original package notices are retained. This software is based in part on the work of the Independent JPEG Group.</p>
-<p>Additional preserved notices: <a href="../native-docs/ffmpeg/LICENSE">FFmpeg GPL license</a>, <a href="../native-docs/ffmpeg/README.txt">FFmpeg build information</a>, <a href="../native-docs/vulkan-loader/LICENSE">Electron license</a>, <a href="../native-docs/vulkan-loader/LICENSES.chromium.html">Chromium and Vulkan notices</a>.</p>
+<p>Additional preserved notices: <a href="../native-docs/ffmpeg/LICENSE.txt">FFmpeg GPL license</a>, <a href="https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-09-30-13-08">FFmpeg build recipes</a>, <a href="../native-docs/vulkan-loader/LICENSE">Electron license</a>, <a href="../native-docs/vulkan-loader/LICENSES.chromium.html">Chromium and Vulkan notices</a>.</p>
 <details><summary>Unresolved distribution coverage</summary><ul>${inventory.unresolved.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul></details>
 ${sections}
 </html>\n`;

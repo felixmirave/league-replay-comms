@@ -67,6 +67,9 @@ npm start
 `prepare:native` downloads pinned Windows mpv, FFmpeg/ffprobe, and Vulkan-loader archives, verifies
 their checksums, and extracts them into ignored resource directories. This is a
 developer build step; the packaged application uses local bundled executables.
+FFmpeg and ffprobe share seven bundled DLLs; mpv uses the smaller upstream MSVC
+build. Exact versions, build sources, and packaging choices are documented in
+[Native dependencies](resources/NATIVE_DEPENDENCIES.md).
 `prepare:ocr` builds the local clock worker and copies its WASM and language data
 from the locked npm packages. OCR never downloads a model at runtime.
 `prepare:notices` collects full license texts from production npm packages and

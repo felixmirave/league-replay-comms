@@ -43,7 +43,7 @@ export function inspectPe(bytes, name) {
       const descriptor = offset(imported.rva + i * 20, 20);
       if ([0, 4, 8, 12, 16].every(field => u32(descriptor + field) === 0)) { terminated = true; break; }
       const dll = string(u32(descriptor + 12)).toLowerCase();
-      check(/^[a-z0-9_.-]+\.dll$/.test(dll) && !imports.has(dll), 'invalid or duplicate import DLL');
+      check(/^[a-z0-9_.-]+\.dll$/.test(dll), 'invalid import DLL');
       const thunk = u32(descriptor) || u32(descriptor + 16), symbols = [];
       let ended = false;
       for (let index = 0; index < 65536; index++) {
@@ -53,7 +53,9 @@ export function inspectPe(bytes, name) {
         else { check(entry <= 0xffffffffn, 'invalid import name RVA'); symbols.push(string(Number(entry) + 2)); }
       }
       check(ended, 'unterminated import table');
-      imports.set(dll, symbols);
+      // A linker can emit multiple descriptors for the same DLL, including
+      // differently cased names. Every descriptor's symbols still need checking.
+      imports.set(dll, [...(imports.get(dll) ?? []), ...symbols]);
     }
     check(terminated, 'unterminated import directory');
   }
@@ -81,7 +83,7 @@ export function inspectPe(bytes, name) {
 
 // Explicit Windows 10/11 system components; API-set contracts are resolved by
 // Windows. A new third-party DLL must be bundled, never presumed to be on PATH.
-const systemDlls = new Set(`advapi32 avicap32 avrt bcrypt bcryptprimitives cfgmgr32 crypt32 d2d1 dwmapi dwrite gdi32 imm32 iphlpapi kernel32 msimg32 msvcrt ncrypt normaliz ntdll ole32 oleaut32 opengl32 secur32 setupapi shell32 shcore shlwapi user32 uxtheme version winmm wldap32 ws2_32`.split(' ').map(name => `${name}.dll`));
+const systemDlls = new Set(`advapi32 avicap32 avrt bcrypt bcryptprimitives cfgmgr32 crypt32 d2d1 dnsapi dwmapi dwrite gdi32 imm32 iphlpapi kernel32 msimg32 msvcrt ncrypt normaliz ntdll ole32 oleaut32 opengl32 rpcrt4 secur32 setupapi shell32 shcore shlwapi user32 userenv usp10 uxtheme version winmm wldap32 ws2_32`.split(' ').map(name => `${name}.dll`));
 export function verifyImports(images) {
   let bundledEdges = 0;
   for (const [name, image] of images) for (const [dll, symbols] of image.imports) {

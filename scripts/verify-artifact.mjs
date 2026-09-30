@@ -36,13 +36,18 @@ for (const [name, hash] of Object.entries(ocr.files)) {
 }
 for (const name of ['scripts/heartbeat.lua', 'scripts/discover-league.ps1', 'scripts/edit-replay-config.ps1', 'scripts/elevate-replay-config.ps1', 'certificates/riotgames.pem']) assert((await readFile(`release/win-unpacked/resources/${name}`)).equals(await readFile(`resources/${name}`)), `Stale resource: ${name}`);
 const manifest = JSON.parse(await readFile('resources/bin/win32-x64/verified.json', 'utf8'));
+const nativeSpec = JSON.parse(await readFile('resources/native-manifest.json', 'utf8'));
+assert.deepEqual(manifest.artifacts, nativeSpec.artifacts.map(a => a.sha256), 'Native resources differ from the pinned manifest');
+assert.deepEqual(Object.keys(manifest.files).sort(), nativeSpec.artifacts.flatMap(a => a.requiredFiles).sort(), 'Native checksums differ from the manifest');
+assert.deepEqual((await readdir('release/win-unpacked/resources/bin/win32-x64')).sort(), [...Object.keys(manifest.files), 'verified.json'].sort(), 'Unexpected packaged native files');
+assert((await readFile('release/win-unpacked/resources/bin/win32-x64/verified.json')).equals(await readFile('resources/bin/win32-x64/verified.json')), 'Stale packaged native checksums');
 for (const [name, hash] of Object.entries(manifest.files)) {
   const staged = await readFile(`release/win-unpacked/resources/bin/win32-x64/${name}`);
   assert.equal(createHash('sha256').update(staged).digest('hex'), hash, `Stale packaged native resource: ${name}`);
 }
 await verifyNativeDirectory('release/win-unpacked/resources/bin/win32-x64');
 await verifyNotices(process.cwd(), 'release/win-unpacked/resources/notices');
-const nativeSpec = JSON.parse(await readFile('resources/native-manifest.json', 'utf8'));
+assert((await readFile('release/win-unpacked/resources/native-manifest.json')).equals(await readFile('resources/native-manifest.json')), 'Stale packaged native manifest');
 const expectedDocumentation = nativeSpec.artifacts.flatMap(a => a.documentationFiles.map(name => `${a.name}/${name}`));
 const packagedDocumentation = [];
 for (const name of await readdir('release/win-unpacked/resources/native-docs', { recursive: true })) {

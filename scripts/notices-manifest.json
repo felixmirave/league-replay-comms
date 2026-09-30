@@ -4,30 +4,30 @@
     {
       "id": "mpv",
       "name": "mpv",
-      "sourceCommit": "e470f8986e7d544c7ccf526e987b9f869f0b5904",
-      "sourceUrl": "https://github.com/mpv-player/mpv/tree/e470f8986e7d544c7ccf526e987b9f869f0b5904",
+      "sourceCommit": "41f6a645068483470267271e1d09966ca3b9f413",
+      "sourceUrl": "https://github.com/mpv-player/mpv/tree/41f6a645068483470267271e1d09966ca3b9f413",
       "notes": [
-        "mpv source revision matches shinchiro release 20260928. GPL/LGPL texts here describe mpv source licensing; the selected build links GPLv3-enabled FFmpeg.",
+        "mpv source revision matches the upstream v0.41.0 Windows x64 MSVC release. It includes LuaJIT and WASAPI; mpv's internal FFmpeg is statically linked and separate from the shared FFmpeg/ffprobe toolchain.",
         "These notices do not supply complete corresponding source, exact linked dependency revisions, build inputs or distribution source access. Native corresponding-source gate remains open."
       ],
       "files": [
         {
           "name": "Copyright.txt",
-          "url": "https://raw.githubusercontent.com/mpv-player/mpv/e470f8986e7d544c7ccf526e987b9f869f0b5904/Copyright",
+          "url": "https://raw.githubusercontent.com/mpv-player/mpv/41f6a645068483470267271e1d09966ca3b9f413/Copyright",
           "sha256": "bfe9ee4cceabcb8ecbfadf208d04156f73d801e6a57369a5606bb8341e204a23"
         },
         {
           "name": "LICENSE-GPL.txt",
-          "url": "https://raw.githubusercontent.com/mpv-player/mpv/e470f8986e7d544c7ccf526e987b9f869f0b5904/LICENSE.GPL",
+          "url": "https://raw.githubusercontent.com/mpv-player/mpv/41f6a645068483470267271e1d09966ca3b9f413/LICENSE.GPL",
           "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
         },
         {
           "name": "LICENSE-LGPL.txt",
-          "url": "https://raw.githubusercontent.com/mpv-player/mpv/e470f8986e7d544c7ccf526e987b9f869f0b5904/LICENSE.LGPL",
+          "url": "https://raw.githubusercontent.com/mpv-player/mpv/41f6a645068483470267271e1d09966ca3b9f413/LICENSE.LGPL",
           "sha256": "72b672113d642cbb8ef5dcc76938db801983c56e50b1400ab930f1a64d6dc8d9"
         }
       ],
-      "version": "20260928-git-e470f8986e"
+      "version": "0.41.0"
     },
     {
       "id": "ocr-tesseract",
@@ -353,7 +353,7 @@
     }
   ],
   "unresolved": [
-    "This notice collection does not provide mpv or Gyan FFmpeg corresponding source, exact linked dependency revisions, patches, build recipes or release source access.",
+    "This notice collection does not provide complete mpv or BtbN FFmpeg corresponding source, exact linked dependency revisions, patches or release source access. The FFmpeg build recipes are at https://github.com/BtbN/FFmpeg-Builds/tree/autobuild-2026-09-30-13-08 .",
     "Native OCR root notices and Emscripten runtime notices are collected, but a complete per-file notice audit against actual linked WASM objects has not been performed.",
     "The English model and tr46 full license texts come from explicitly identified later upstream commits; original release trees lacked those files. Preserve these qualifications.",
     "English model npm-wrapper MIT metadata conflicts with the model repository Apache-2.0 license; do not label the model MIT. Its exact Tessdata Best precursor/conversion provenance remains unverified.",
@@ -368,8 +368,8 @@
       "electron": "44.5.0"
     },
     "nativeArtifacts": {
-      "mpv": "6491ba670f836553fdd0d965c6e99ed8aa4053c1c79a5e4e30a1e127da64714a",
-      "ffmpeg": "4705843ccaaf54257c16ad90f3e952ece33c17df964ecf7bfdbb0f49c7171077",
+      "mpv": "4e197f729f5071c6772f35fffd96e0f36e3e8a044bd9479b136bb09b7c6a80ff",
+      "ffmpeg": "3da6c7b60bb9ccd73ec5b5e815ba804a0879eb362ba0e3beebce50174c022696",
       "vulkan-loader": "b3405d8847bc5054cd16272f538d22ba5b73032945e85cef26241f7135035278"
     }
   }
