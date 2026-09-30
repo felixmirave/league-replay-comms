@@ -14,6 +14,15 @@ function recording(state: ProbeSnapshot) {
 function align(state: ProbeSnapshot) { state.library!.alignment = { baseOffsetSeconds: 12, correctionSeconds: 0, source: 'manual', revision: 1, updatedAt: '2026-01-01' }; }
 
 describe('guided review state machine', () => {
+  it('keeps startup loading and failures separate from League setup, including partial initialization', () => {
+    const flow = new GuidedWorkflow(), state = facts();
+    state.startup = 'loading';
+    expect(flow.observe(state)).toMatchObject({ state: 'starting', primary: undefined });
+    state.startup = 'failed'; state.error = 'Could not initialize services';
+    expect(flow.observe(state)).toMatchObject({ state: 'application.error', primary: undefined });
+    state.startup = 'ready'; state.error = undefined;
+    expect(flow.observe(state)).toMatchObject({ state: 'recording.choose', primary: 'Choose recording' });
+  });
   it('guides installation, API enablement, connection, recording and timing with one primary action', () => {
     const flow = new GuidedWorkflow(), state = facts(false);
     expect(flow.observe(state)).toMatchObject({ state: 'setup.folder', primary: 'Choose League folder' });

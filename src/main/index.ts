@@ -49,6 +49,7 @@ let clockReader: OcrReader | undefined;
 let clockAnalysis: CachedClockAnalysis | undefined;
 let commands = Promise.resolve();
 let startupError: string | undefined;
+let startup: NonNullable<ProbeSnapshot['startup']> = 'loading';
 let preparingExit = false;
 const workflow = new GuidedWorkflow();
 let foregroundBusy = false;
@@ -73,15 +74,14 @@ function verifySender(event: Electron.IpcMainInvokeEvent): void {
 }
 
 function publishedSnapshot(): ProbeSnapshot {
-  const value = { ...snapshot, busy: preparingExit || foregroundBusy || snapshot.busy, error: startupError ?? snapshot.error, library: review?.snapshot(), setup: setup?.snapshot() };
+  const value = { ...snapshot, startup, busy: startup === 'loading' || preparingExit || foregroundBusy || snapshot.busy, error: startupError ?? snapshot.error, library: review?.snapshot(), setup: setup?.snapshot() };
   return { ...value, workflow: workflow.observe(value) };
 }
 function publish(): void { if (window && !window.isDestroyed()) window.webContents.send('review:snapshot', publishedSnapshot()); }
 function publishPreview(): void { if (window && !window.isDestroyed() && previews) window.webContents.send('review:preview', previews.snapshot()); }
 
 app.on('second-instance', () => { window?.restore(); window?.focus(); });
-app.whenReady().then(async () => {
-  const resources = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources');
+async function initialize(resources: string): Promise<void> {
   const testOutput = !app.isPackaged && process.env.COMMS_TEST_NULL_AUDIO === '1' ? '--test-null-audio' : '';
   worker = utilityProcess.fork(join(__dirname, '../sync/entry.cjs'), [resources, testOutput], { serviceName: 'Replay comms synchronization', stdio: 'pipe' });
   worker.on('message', (message: WorkerResponse) => {
@@ -114,31 +114,41 @@ app.whenReady().then(async () => {
   powerMonitor.on('suspend', () => forwardPower('suspend'));
   powerMonitor.on('resume', () => forwardPower('resume'));
 
-  try {
-    library = await ReviewLibrary.open(app.getPath('userData'));
-    const preferences = new PreferenceEdits(library);
-    const configEdits = new WindowsConfigEdits(join(resources, 'scripts'), join(app.getPath('userData'), 'config-operations'), !app.isPackaged ? process.env.COMMS_TEST_POWERSHELL : undefined);
-    setup = new LeagueSetup(new WindowsLeagueDiscovery(join(resources, 'scripts', 'discover-league.ps1')), library, publish, undefined, configEdits, preferences);
-    void setup.refresh().catch(error => { startupError = error instanceof Error ? error.message : String(error); publish(); });
-    hashes = new HashWorkers(join(__dirname, '../analysis/hash-entry.cjs'));
-    const decoderPath = join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/ffmpeg.exe' : 'linux-x64/ffmpeg');
-    decoders = new DecoderQueue(join(__dirname, '../analysis/decoder-entry.cjs'), decoderPath);
-    previews = new PreviewSession(decoders, new AnalysisCache(join(app.getPath('userData'), 'cache', 'waveforms')), publishPreview);
-    clockReader = new OcrReader(join(__dirname, '../analysis/ocr-entry.cjs'), join(resources, 'ocr'));
-    clockAnalysis = new CachedClockAnalysis(new VideoClockAnalyzer(decoders, clockReader), new ClockCache(join(app.getPath('userData'), 'cache', 'clocks'), await clockRuntimeId(resources, decoderPath)));
-    review = new ReviewSession(library, hashes, {
-      snapshot: () => snapshot,
-      send: async command => {
-        const state = await request(command) as ProbeSnapshot;
-        snapshot = state;
-        publish();
-        return state;
-      },
-    }, publish, new Ffprobe(join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/ffprobe.exe' : 'linux-x64/ffprobe')), previews, clockAnalysis, preferences);
-  } catch (error) { startupError = error instanceof Error ? error.message : String(error); }
+  library = await ReviewLibrary.open(app.getPath('userData'));
+  if (preparingExit) return;
+  const preferences = new PreferenceEdits(library);
+  const configEdits = new WindowsConfigEdits(join(resources, 'scripts'), join(app.getPath('userData'), 'config-operations'), !app.isPackaged ? process.env.COMMS_TEST_POWERSHELL : undefined);
+  setup = new LeagueSetup(new WindowsLeagueDiscovery(join(resources, 'scripts', 'discover-league.ps1')), library, publish, undefined, configEdits, preferences);
+  void setup.refresh().catch(error => { startupError = error instanceof Error ? error.message : String(error); publish(); });
+  hashes = new HashWorkers(join(__dirname, '../analysis/hash-entry.cjs'));
+  const decoderPath = join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/ffmpeg.exe' : 'linux-x64/ffmpeg');
+  decoders = new DecoderQueue(join(__dirname, '../analysis/decoder-entry.cjs'), decoderPath);
+  previews = new PreviewSession(decoders, new AnalysisCache(join(app.getPath('userData'), 'cache', 'waveforms')), publishPreview);
+  clockReader = new OcrReader(join(__dirname, '../analysis/ocr-entry.cjs'), join(resources, 'ocr'));
+  const runtimeId = await clockRuntimeId(resources, decoderPath);
+  if (preparingExit) return;
+  clockAnalysis = new CachedClockAnalysis(new VideoClockAnalyzer(decoders, clockReader), new ClockCache(join(app.getPath('userData'), 'cache', 'clocks'), runtimeId));
+  review = new ReviewSession(library, hashes, {
+    snapshot: () => snapshot,
+    send: async command => {
+      const state = await request(command) as ProbeSnapshot;
+      snapshot = state;
+      publish();
+      return state;
+    },
+  }, publish, new Ffprobe(join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/ffprobe.exe' : 'linux-x64/ffprobe')), previews, clockAnalysis, preferences);
+}
 
-  window = new BrowserWindow({ width: 780, height: 820, minWidth: 560, minHeight: 640, backgroundColor: '#f2f4f8',
+const startupTask = app.whenReady().then(async () => {
+  if (preparingExit) return;
+  const resources = app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources');
+
+  window = new BrowserWindow({ show: false, width: 780, height: 820, minWidth: 560, minHeight: 640, backgroundColor: '#f2f4f8',
     webPreferences: { preload: join(__dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  const shown = new Promise<void>(resolve => window!.once('ready-to-show', () => {
+    if (!preparingExit) window!.show();
+    resolve();
+  }));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.on('close', event => { event.preventDefault(); void quit.request(); });
@@ -148,6 +158,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('review:command', (event, raw: unknown) => {
     verifySender(event);
     if (preparingExit) throw new Error('The application is saving before closing. Cancel closing to keep reviewing.');
+    if (startup === 'loading') throw new Error('The application is still starting. Please wait.');
     const command = userCommandSchema.parse(raw);
     const operation = commands.then(async () => {
     const opening = ['open-path', 'select-recording', 'locate-media'].includes(command.type);
@@ -240,12 +251,21 @@ app.whenReady().then(async () => {
     commands = operation.catch(() => undefined);
     return operation;
   });
-  await window.loadFile(join(__dirname, '../renderer/index.html'));
-});
+  // Paint the loading screen before library I/O or service initialization begins.
+  await Promise.all([window.loadFile(join(__dirname, '../renderer/index.html')), shown]);
+  if (preparingExit) return;
+  await initialize(resources);
+  if (!preparingExit) startup = 'ready';
+}).catch(error => {
+  startup = 'failed';
+  startupError = error instanceof Error ? error.message : String(error);
+}).finally(publish);
 
 const quit = new QuitCoordinator({
   freeze: value => { preparingExit = value; publish(); },
-  drain: async () => { await commands; },
+  // Initialization may be awaiting I/O when the early window is closed. Let it
+  // reach an exit guard before disposing services, so none can start after exit.
+  drain: async () => { await startupTask; await commands; },
   silence: async () => {
     // A failed player must not prevent saving. Killing the owned utility stops
     // its heartbeat; mpv's independent watchdog then terminates output.

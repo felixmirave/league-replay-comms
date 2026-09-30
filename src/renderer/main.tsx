@@ -11,6 +11,7 @@ import './style.css';
 
 declare global { interface Window { review: DesktopInterface } }
 const titles: Record<WorkflowState, string> = {
+  starting: 'Starting…',
   checking: 'Checking League…', 'setup.folder': 'Where is League installed?', 'setup.installation': 'Choose your League installation',
   'setup.enable': 'Allow replay connection', 'setup.permission': 'Windows permission is needed', 'setup.editing': 'Updating replay connection…', 'setup.repair': 'Check League’s configuration',
   'replay.wait': 'Open a replay in League', 'recording.choose': 'Choose your recording', 'recording.opening': 'Opening recording…', 'recording.identifying': 'Restoring saved timing…',
@@ -19,6 +20,7 @@ const titles: Record<WorkflowState, string> = {
   ready: 'Ready to listen', 'ready.offline': 'Your timing is ready', listening: 'Following League', 'audio.error': 'Audio could not start', 'application.error': 'The application could not start',
 };
 const descriptions: Record<WorkflowState, string> = {
+  starting: 'This may take a few seconds.',
   checking: 'Finding the installation and checking replay access.', 'setup.folder': 'Choose the League of Legends game folder so we can check replay access.',
   'setup.installation': 'More than one installation was found. Choose the one you use.',
   'setup.enable': 'This lets the app read your replay’s time. We’ll back up League’s configuration before changing it.',
@@ -37,7 +39,7 @@ const descriptions: Record<WorkflowState, string> = {
   'application.error': 'Close and reopen the application after resolving the problem below.',
 };
 function App() {
-  const [snapshot, setSnapshot] = useState<ProbeSnapshot>(initialSnapshot);
+  const [snapshot, setSnapshot] = useState<ProbeSnapshot>({ ...initialSnapshot, startup: 'loading' });
   const [preview, setPreview] = useState<PreviewView>({ revision: 0, mediaGeneration: 0 });
   const [error, setError] = useState('');
   const [pending, setPending] = useState(0);
@@ -47,7 +49,7 @@ function App() {
   const [selectedRoot, setSelectedRoot] = useState('');
   const [track, setTrack] = useState<number>();
   const heading = useRef<HTMLHeadingElement>(null), settingsDialog = useRef<HTMLDialogElement>(null);
-  const flow = snapshot.workflow, state = flow?.state ?? 'checking', library = snapshot.library;
+  const flow = snapshot.workflow, state = flow?.state ?? (snapshot.startup === 'loading' ? 'starting' : 'checking'), library = snapshot.library;
   const [volume, changeVolume] = useVolume(library?.volume ?? 100, window.review.command, setError);
   const connected = !!snapshot.replay && !snapshot.connectionError;
   const busy = snapshot.busy || pending > 0;
@@ -95,6 +97,9 @@ function App() {
     finally { setPending(count => count - 1); }
   };
   const visibleError = error || (setupState ? snapshot.setup?.error : library?.error) || snapshot.error || snapshot.audioOutput?.error;
+  if (state === 'starting') return <main className="startup" aria-busy="true"><section className="startup-card" role="status">
+    <strong>League Replay Comms</strong><div className="startup-message"><span className="startup-spinner" aria-hidden="true" /><h1>{titles.starting}</h1></div><p>{descriptions.starting}</p>
+  </section></main>;
   return <main>
     <header><strong>League Replay Comms</strong><button className="text-button" onClick={() => setSettings(true)}>Settings</button></header>
     <div className="context"><span>{connected ? 'League connected' : 'League not connected'}</span>{library?.recording && <span className="filename" title={library.recording.path}>{library.recording.path.split(/[\\/]/).at(-1)}</span>}

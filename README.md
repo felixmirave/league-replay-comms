@@ -85,6 +85,7 @@ npm run check
 npm run test:packaging
 npm run test:engine
 npm run smoke:ui
+npm run test:startup-ui
 npm run test:volume-ui
 npm run smoke:driver
 npm run test:review-ui
@@ -108,6 +109,9 @@ or physical audio output.
 `test:volume-ui` runs the renderer in Electron with controlled desktop responses
 and requires a desktop session. It checks pointer and keyboard volume changes
 across replay-clock updates, delayed replies, and failed saves in both controls.
+`test:startup-ui` holds initialization I/O in the real Electron app to check that
+the loading window appears first, errors replace it, and closing during startup
+exits cleanly. It also requires a desktop session.
 When `COMMS_TEST_FFMPEG` is provided (or bundled FFmpeg is available on Windows),
 the review test also imports a generated POV video, resolves missing track timing
 in the background, seeks using the canonical timeline, and verifies its cache,
@@ -128,6 +132,13 @@ The portable executable is generated under `release/`. This development artifact
 is unsigned and is not a completed public release. Packaging refuses missing or
 modified native resources. Public distribution and Windows acceptance gates remain
 in [the plan](IMPLEMENTATION_PLAN.md).
+
+The portable launcher shows **Starting…** while extracting the app. Once Electron
+starts, the main window shows an animated loading indicator while the library and
+services initialize. The launcher splash closes before Electron starts, so a brief
+gap between the two windows is possible. Edit `build/splash.svg` and run
+`npm run prepare:splash` in a desktop session to regenerate the checked-in bitmap;
+ordinary builds use that bitmap without needing image conversion or a desktop.
 
 Release builds minify the main process and workers and omit source maps and npm
 packages already compiled into `dist`. The portable payload keeps English Electron

@@ -2,6 +2,14 @@
 * { box-sizing: border-box; }
 body { margin: 0; }
 main { max-width: 820px; margin: 0 auto; background: white; min-height: 100vh; }
+.startup { display: grid; place-items: center; padding: 28px; background: #f2f4f8; }
+.startup-card { width: min(480px, 100%); padding: 36px; background: white; border: 1px solid #d4dce7; border-top: 5px solid #205cce; border-radius: 8px; }
+.startup-card > strong { font-size: 20px; }
+.startup-message { display: flex; align-items: center; gap: 14px; margin-top: 32px; }
+.startup-message h1 { margin: 0; font-size: 28px; }
+.startup-spinner { width: 24px; height: 24px; flex-shrink: 0; border: 3px solid #e0e6ee; border-top-color: #205cce; border-radius: 50%; animation: startup-spin 1s linear infinite; }
+@keyframes startup-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .startup-spinner { animation: none; } }
 header, .section-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 header { padding: 18px 28px; border-bottom: 1px solid #e0e6ee; }
 header strong { font-size: 15px; }

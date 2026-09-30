@@ -68,6 +68,7 @@ export interface LibraryView {
   clock?: ClockView;
 }
 export interface ProbeSnapshot {
+  startup?: 'loading' | 'ready' | 'failed';
   workflow?: WorkflowView;
   audioOutput?: AudioOutputState;
   sync: SyncStatus;

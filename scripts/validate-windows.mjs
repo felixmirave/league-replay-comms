@@ -45,6 +45,7 @@ const steps = [
   node('packaging-tests', '--test', ...packagingTests),
   node('build', 'scripts/build.mjs'),
   node('source-smoke', 'scripts/smoke-ui.mjs'),
+  node('startup-ui', '--test', 'scripts/test-startup-ui.mjs'),
   node('volume-controls', '--test', 'scripts/test-volume-ui.mjs'),
   node('debugger-driver', 'scripts/smoke-driver.mjs'),
   node('source-review', 'scripts/test-review-ui.mjs'),

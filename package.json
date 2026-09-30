@@ -17,6 +17,7 @@
     "prepare:native": "node scripts/prepare-native.mjs",
     "prepare:ocr": "node scripts/prepare-ocr.mjs",
     "prepare:notices": "node scripts/prepare-notices.mjs",
+    "prepare:splash": "node scripts/prepare-splash.mjs",
     "test:packaging": "node --test scripts/notices.test.mjs scripts/windows-native.test.mjs scripts/portable-payload.test.mjs scripts/after-pack.test.mjs",
     "test:validation": "node --test scripts/validation-steps.test.mjs scripts/artifact-evidence.test.mjs",
     "validate:windows": "node scripts/validate-windows.mjs",
@@ -33,6 +34,7 @@
     "smoke:driver": "npm run build && node scripts/smoke-driver.mjs",
     "test:review-ui": "npm run build && node scripts/test-review-ui.mjs",
     "test:volume-ui": "node --test scripts/test-volume-ui.mjs",
+    "test:startup-ui": "npm run build && node --test scripts/test-startup-ui.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "package:win": "npm run check && npm run verify:resources && node scripts/package-win.mjs"
   },
@@ -88,6 +90,7 @@
       "signAndEditExecutable": false
     },
     "portable": {
+      "splashImage": "build/splash.bmp",
       "artifactName": "LeagueReplayComms-${version}-${arch}.exe"
     }
   }

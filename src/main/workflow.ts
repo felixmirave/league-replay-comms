@@ -12,6 +12,8 @@ const primary: Partial<Record<WorkflowState, string>> = {
   ready: 'Start listening', 'ready.offline': 'Connect to League', listening: 'Stop listening', 'audio.error': 'Retry audio',
 };
 function route(context: Context, facts: ProbeSnapshot): WorkflowState {
+  if (facts.startup === 'loading') return 'starting';
+  if (facts.startup === 'failed') return 'application.error';
   const library = facts.library, setup = facts.setup, connected = !!facts.replay && !facts.connectionError;
   if (!library) return facts.error ? 'application.error' : 'checking';
   if (context.mode === 'crop' && library.recordingReady) return 'alignment.crop';
