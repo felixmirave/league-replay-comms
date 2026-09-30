@@ -6,7 +6,8 @@
       "name": "mpv",
       "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260928/mpv-x86_64-20260928-git-e470f8986e.7z",
       "sha256": "6491ba670f836553fdd0d965c6e99ed8aa4053c1c79a5e4e30a1e127da64714a",
-      "requiredFiles": ["mpv.exe"]
+      "requiredFiles": ["mpv.exe"],
+      "documentationFiles": []
     },
     {
       "name": "ffmpeg",
@@ -14,7 +15,8 @@
       "sha256": "4705843ccaaf54257c16ad90f3e952ece33c17df964ecf7bfdbb0f49c7171077",
       "root": "ffmpeg-9.0.2-essentials_build",
       "binaryDirectory": "bin",
-      "requiredFiles": ["ffmpeg.exe", "ffprobe.exe"]
+      "requiredFiles": ["ffmpeg.exe", "ffprobe.exe"],
+      "documentationFiles": ["LICENSE", "README.txt"]
     },
     {
       "name": "vulkan-loader",

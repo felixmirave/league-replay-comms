@@ -43,14 +43,13 @@ for (const artifact of manifest.artifacts) {
   for (const name of artifact.requiredFiles) {
     if (!(await stat(join(binaries, name))).isFile()) throw new Error(`Archive lacks ${name}`);
   }
-  // Preserve documentation, but do not ship unrelated ffplay or upstream installers.
+  // Ship only declared binaries and attribution/build information. mpv's license
+  // texts are supplied by prepare:notices; manuals and installers stay in cache.
   for (const name of artifact.requiredFiles) await cp(join(binaries, name), join(output, name));
   const docs = join('resources/native-docs', artifact.name);
   await rm(docs, { recursive: true, force: true });
-  if (artifact.documentationFiles) {
-    await mkdir(docs, { recursive: true });
-    for (const name of artifact.documentationFiles) await cp(join(sourceRoot, name), join(docs, name));
-  } else await cp(sourceRoot, docs, { recursive: true, filter: source => !/\.(exe|dll|com|bat|ps1)$/i.test(source) });
+  await mkdir(docs, { recursive: true });
+  for (const name of artifact.documentationFiles) await cp(join(sourceRoot, name), join(docs, name));
   for (const name of artifact.requiredFiles) verified[name] = await digest(join(binaries, name));
   console.log(`Verified and prepared ${artifact.name}.`);
 }

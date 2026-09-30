@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { extractFile } from '@electron/asar';
+import { extractFile, listPackage } from '@electron/asar';
 import { readFile, open, stat, writeFile, readdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -11,6 +11,11 @@ const { version, commsValidation } = JSON.parse(await readFile('package.json', '
 const executable = `release/LeagueReplayComms-${version}-x64.exe`;
 assert((await stat(executable)).size > 1024 * 1024, 'Portable artifact is missing or incomplete');
 const packagedManifest = JSON.parse(extractFile('release/win-unpacked/resources/app.asar', 'package.json').toString('utf8'));
+const packagedFiles = listPackage('release/win-unpacked/resources/app.asar').map(name => name.replaceAll('\\', '/'));
+assert(!packagedFiles.some(name => name === '/node_modules' || name.startsWith('/node_modules/')), 'Redundant npm packages are present in the ASAR');
+assert(!packagedFiles.some(name => name.endsWith('.map')), 'Source maps are present in the ASAR');
+assert.deepEqual((await readdir('release/win-unpacked/locales')).sort(), ['en-GB.pak', 'en-US.pak'], 'Unexpected Electron locales');
+await assert.rejects(stat('release/win-unpacked/LICENSES.chromium.html'), { code: 'ENOENT' }, 'Duplicate Chromium notices are present');
 assert.equal(packagedManifest.version, version, 'Stale packaged application version');
 assert.deepEqual(packagedManifest.commsValidation, commsValidation, 'Stale packaged validation capabilities');
 for (const name of await readdir('dist', { recursive: true })) {
@@ -19,6 +24,12 @@ for (const name of await readdir('dist', { recursive: true })) {
   assert(archived.equals(await readFile(`dist/${name}`)), `Stale packaged module: ${name}`);
 }
 const ocr = JSON.parse(await readFile('resources/ocr/verified.json', 'utf8'));
+const packagedOcrFiles = [];
+for (const name of await readdir('release/win-unpacked/resources/ocr', { recursive: true })) {
+  if ((await stat(`release/win-unpacked/resources/ocr/${name}`)).isFile()) packagedOcrFiles.push(name.replaceAll('\\', '/'));
+}
+assert(!packagedOcrFiles.some(name => name.endsWith('.wasm.js')), 'Browser OCR bundles are present');
+assert.deepEqual(packagedOcrFiles.sort(), [...Object.keys(ocr.files), 'verified.json'].sort(), 'Unexpected packaged OCR resources');
 for (const [name, hash] of Object.entries(ocr.files)) {
   const staged = await readFile(`release/win-unpacked/resources/ocr/${name}`);
   assert.equal(createHash('sha256').update(staged).digest('hex'), hash, `Stale packaged clock resource: ${name}`);
@@ -31,8 +42,14 @@ for (const [name, hash] of Object.entries(manifest.files)) {
 }
 await verifyNativeDirectory('release/win-unpacked/resources/bin/win32-x64');
 await verifyNotices(process.cwd(), 'release/win-unpacked/resources/notices');
-for (const name of await readdir('resources/native-docs', { recursive: true })) {
-  if (!(await stat(`resources/native-docs/${name}`)).isFile()) continue;
+const nativeSpec = JSON.parse(await readFile('resources/native-manifest.json', 'utf8'));
+const expectedDocumentation = nativeSpec.artifacts.flatMap(a => a.documentationFiles.map(name => `${a.name}/${name}`));
+const packagedDocumentation = [];
+for (const name of await readdir('release/win-unpacked/resources/native-docs', { recursive: true })) {
+  if ((await stat(`release/win-unpacked/resources/native-docs/${name}`)).isFile()) packagedDocumentation.push(name.replaceAll('\\', '/'));
+}
+assert.deepEqual(packagedDocumentation.sort(), expectedDocumentation.sort(), 'Unexpected packaged native documentation');
+for (const name of expectedDocumentation) {
   assert((await readFile(`release/win-unpacked/resources/native-docs/${name}`)).equals(await readFile(`resources/native-docs/${name}`)), `Stale native documentation: ${name}`);
 }
 const handle = await open(executable);

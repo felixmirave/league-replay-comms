@@ -17,7 +17,7 @@
     "prepare:native": "node scripts/prepare-native.mjs",
     "prepare:ocr": "node scripts/prepare-ocr.mjs",
     "prepare:notices": "node scripts/prepare-notices.mjs",
-    "test:packaging": "node --test scripts/notices.test.mjs scripts/windows-native.test.mjs scripts/portable-payload.test.mjs",
+    "test:packaging": "node --test scripts/notices.test.mjs scripts/windows-native.test.mjs scripts/portable-payload.test.mjs scripts/after-pack.test.mjs",
     "test:validation": "node --test scripts/validation-steps.test.mjs scripts/artifact-evidence.test.mjs",
     "validate:windows": "node scripts/validate-windows.mjs",
     "verify:resources": "node scripts/verify-resources.mjs",
@@ -57,6 +57,8 @@
   },
   "build": {
     "compression": "normal",
+    "afterPack": "./scripts/after-pack.mjs",
+    "electronLanguages": ["en-US", "en-GB"],
     "appId": "local.leaguereplaycomms.desktop",
     "productName": "League Replay Comms",
     "directories": {
@@ -64,7 +66,9 @@
     },
     "files": [
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/**/*",
+      "!**/*.map"
     ],
     "extraResources": [
       {

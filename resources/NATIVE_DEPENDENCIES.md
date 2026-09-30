@@ -2,8 +2,10 @@
 
 The probe bundles Windows x64 mpv, FFmpeg/ffprobe, and a Vulkan loader from the pinned archives in
 `native-manifest.json`. Downloads are verified against SHA-256 digests published
-with the upstream release. The preparation script preserves archive contents,
-including bundled documentation and notices.
+with the upstream release. The preparation script copies only the binaries and
+license/build files declared in the manifest. Manuals, examples, and upstream
+installers remain in the download cache. mpv's license texts are collected by
+`prepare:notices`.
 
 - [mpv Windows builds](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260928), linked by [mpv's installation page](https://mpv.io/installation/).
 - [FFmpeg and ffprobe Windows build](https://github.com/GyanD/codexffmpeg/releases/tag/9.0.2).

@@ -11,7 +11,12 @@ await build({ entryPoints: ['node_modules/tesseract.js/src/worker-script/node/in
   platform: 'node', format: 'cjs', target: 'node22', external: ['tesseract.js-core/*'],
   banner: { js: 'globalThis.fetch = async () => { throw new Error("Clock recognition uses bundled resources only"); };' },
 });
-await cp('node_modules/tesseract.js-core', `${root}/node_modules/tesseract.js-core`, { recursive: true });
+// Node loads the .js + .wasm pairs. The .wasm.js browser bundles embed another
+// copy of each WASM binary. Keep every Node core, including SIMD fallbacks:
+// the pinned worker can select a full core even with OEM.LSTM_ONLY.
+await cp('node_modules/tesseract.js-core', `${root}/node_modules/tesseract.js-core`, {
+  recursive: true, filter: source => !source.endsWith('.wasm.js'),
+});
 await cp('node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', `${root}/eng.traineddata.gz`);
 await cp('node_modules/tesseract.js/LICENSE.md', `${root}/TESSERACT_JS_LICENSE.md`);
 const versions = {};

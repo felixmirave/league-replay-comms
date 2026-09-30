@@ -122,6 +122,13 @@ is unsigned and is not a completed public release. Packaging refuses missing or
 modified native resources. Public distribution and Windows acceptance gates remain
 in [the plan](IMPLEMENTATION_PLAN.md).
 
+Release builds minify the main process and workers and omit source maps and npm
+packages already compiled into `dist`. The portable payload keeps English Electron
+locales, Node OCR cores with all SIMD fallbacks, and native license/build notices.
+Browser OCR bundles, upstream manuals, and installer examples are omitted. A pack
+hook removes Electron's duplicate Chromium notices only after checking that the
+copy linked from the offline notices page is identical.
+
 `verify:artifact` checks the staged app against the current build/resources, then
 extracts the portable executable's embedded archive into a temporary directory.
 It compares every extracted file with the staged build, including runtime libraries

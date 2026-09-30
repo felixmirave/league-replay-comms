@@ -1,4 +1,5 @@
-import { readFile, stat } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { verifyNativeDirectory } from './windows-native.mjs';
 import { verifyNotices } from './notices.mjs';
@@ -16,8 +17,15 @@ for (const name of manifest.artifacts.flatMap(a => a.requiredFiles)) {
   if (file[0] !== 0x4d || file[1] !== 0x5a) throw new Error(`Not a Windows executable: ${path}`);
   if (createHash('sha256').update(file).digest('hex') !== verified.files[name]) throw new Error(`Native resource changed after preparation: ${path}`);
 }
+const documentation = [];
+for (const name of await readdir('resources/native-docs', { recursive: true })) {
+  if ((await stat(`resources/native-docs/${name}`)).isFile()) documentation.push(name.replaceAll('\\', '/'));
+}
+assert.deepEqual(documentation.sort(), manifest.artifacts.flatMap(a => a.documentationFiles.map(name => `${a.name}/${name}`)).sort(),
+  'Native documentation differs from the manifest. Run npm run prepare:native.');
 const ocr = JSON.parse(await readFile('resources/ocr/verified.json', 'utf8').catch(() => { throw new Error('Offline clock resources missing. Run npm run prepare:ocr.'); }));
 if (ocr.version !== 1 || ocr.lockDigest !== createHash('sha256').update(await readFile('package-lock.json')).digest('hex')) throw new Error('Clock resources do not match the lockfile. Run npm run prepare:ocr.');
+assert(!Object.keys(ocr.files).some(name => name.endsWith('.wasm.js')), 'Browser OCR bundles are still prepared. Run npm run prepare:ocr.');
 for (const [name, hash] of Object.entries(ocr.files)) {
   if (createHash('sha256').update(await readFile(`resources/ocr/${name}`)).digest('hex') !== hash) throw new Error(`Clock resource changed after preparation: ${name}`);
 }
