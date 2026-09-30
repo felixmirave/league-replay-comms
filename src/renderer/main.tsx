@@ -6,6 +6,7 @@ import type { WorkflowState } from '../shared/workflow';
 import { RecordingPreview } from './preview';
 import { SetupPanel } from './setup';
 import { TimingEditor, time } from './timing-editor';
+import { useVolume } from './volume';
 import './style.css';
 
 declare global { interface Window { review: DesktopInterface } }
@@ -47,6 +48,7 @@ function App() {
   const [track, setTrack] = useState<number>();
   const heading = useRef<HTMLHeadingElement>(null), settingsDialog = useRef<HTMLDialogElement>(null);
   const flow = snapshot.workflow, state = flow?.state ?? 'checking', library = snapshot.library;
+  const [volume, changeVolume] = useVolume(library?.volume ?? 100, window.review.command, setError);
   const connected = !!snapshot.replay && !snapshot.connectionError;
   const busy = snapshot.busy || pending > 0;
   const installation = snapshot.setup?.installations.find(value => value.root === snapshot.setup?.selectedRoot);
@@ -111,7 +113,7 @@ function App() {
       {state === 'alignment.crop' && snapshot.media && <><p className="notice">{library?.clock?.message}</p><RecordingPreview mode="crop" preview={preview} media={snapshot.media} position={snapshot.positionSeconds} disabled={busy} command={command} useFrame={() => {}} /></>}
       {editing && snapshot.media && <TimingEditor key={`${library?.mediaGeneration}:${flow?.editorKey}`} snapshot={snapshot} preview={preview} busy={busy} command={command} />}
       {state === 'ready' && <div className="notice"><strong>{snapshot.media?.name}</strong><p>{library?.alignment?.source === 'video-clock' ? 'Timing aligned from the recorded clock.' : 'Your timing is ready.'}</p></div>}
-      {state === 'listening' && <><div className="replay-clock" aria-label="Replay time">{time(snapshot.replay?.timeSeconds)} <small>{snapshot.replay?.speed ?? 1}×</small></div>{snapshot.sync.state === 'outside-recording' && <p>This replay position is outside the recorded audio. Comms will resume when the replay returns to the recording.</p>}{snapshot.sync.state === 'unsupported-speed' && <p>Change the replay speed in League. Comms are silent until playback is supported.</p>}<label className="volume">Comms volume<input type="range" min="0" max="100" value={library?.volume ?? 100} onChange={event => void command({ type: 'volume', volume: Number(event.target.value) })} /></label></>}
+      {state === 'listening' && <><div className="replay-clock" aria-label="Replay time">{time(snapshot.replay?.timeSeconds)} <small>{snapshot.replay?.speed ?? 1}×</small></div>{snapshot.sync.state === 'outside-recording' && <p>This replay position is outside the recorded audio. Comms will resume when the replay returns to the recording.</p>}{snapshot.sync.state === 'unsupported-speed' && <p>Change the replay speed in League. Comms are silent until playback is supported.</p>}<label className="volume">Comms volume<input type="range" min="0" max="100" value={volume} onChange={event => void changeVolume(Number(event.target.value))} /></label></>}
       {!editing && flow?.primary && <div className="actions"><button className="primary" disabled={busy} onClick={primary}>{flow.primary}</button></div>}
       <div className="secondary">
         {(setupState || state === 'replay.wait') && <button className="text-button" onClick={() => void command({ type: 'workflow', action: 'prepare' })}>Prepare a recording without League</button>}
@@ -125,7 +127,7 @@ function App() {
     <dialog ref={settingsDialog} onClose={() => setSettings(false)} aria-labelledby="settings-title"><div className="section-title"><h2 id="settings-title">Settings</h2><button onClick={() => setSettings(false)}>Close settings</button></div>
       {error && <div role="alert" className="error">{error}</div>}
       <SetupPanel setup={snapshot.setup} connected={connected} disabled={busy} command={command} />
-      {library?.recordingReady && <section><h3>Recording</h3><label className="volume">Comms volume<input type="range" min="0" max="100" value={library.volume} onChange={event => void command({ type: 'volume', volume: Number(event.target.value) })} /></label><button onClick={() => { setSettings(false); void command({ type: 'workflow', action: 'change-track' }); }}>Change audio track</button></section>}
+      {library?.recordingReady && <section><h3>Recording</h3><label className="volume">Comms volume<input type="range" min="0" max="100" value={volume} onChange={event => void changeVolume(Number(event.target.value))} /></label><button onClick={() => { setSettings(false); void command({ type: 'workflow', action: 'change-track' }); }}>Change audio track</button></section>}
       <section><h3>Recording folders</h3><p>Search these folders if a saved recording moves.</p>{library?.folders.map(path => <p className="filename" key={path}>{path}</p>)}<button onClick={() => void command({ type: 'add-media-folder' })}>Add media folder</button></section>
       <details><summary>Timing diagnostics</summary><p>Physical accuracy has not yet been validated against League.</p><dl><dt>Controller</dt><dd>{snapshot.sync.state}</dd><dt>Connection</dt><dd>{snapshot.connectionError ?? (connected ? 'Connected' : 'Waiting')}</dd><dt>Output driver</dt><dd>{snapshot.audioOutput?.driver ?? 'Unavailable'}</dd><dt>Offset</dt><dd>{snapshot.offsetSeconds?.toFixed(3) ?? 'Unset'} s</dd><dt>Estimated error</dt><dd>{snapshot.sync.errorSeconds === undefined ? '—' : `${(snapshot.sync.errorSeconds * 1000).toFixed(1)} ms`}</dd></dl><label className="checkbox"><input type="checkbox" checked={includePaths} onChange={event => setIncludePaths(event.target.checked)} />Include local file paths in exported trace</label><button onClick={() => void command({ type: 'export-trace', includePaths })}>Export timing trace</button><button onClick={() => void command({ type: 'retry' })}>Retry audio</button></details>
       {!!library?.warnings.length && <section><h3>Library notices</h3>{library.warnings.map(value => <p key={value}>{value}</p>)}</section>}

@@ -85,6 +85,7 @@ npm run check
 npm run test:packaging
 npm run test:engine
 npm run smoke:ui
+npm run test:volume-ui
 npm run smoke:driver
 npm run test:review-ui
 npm run package:win
@@ -104,6 +105,9 @@ it uses null audio output to verify engine behavior, not physical audible timing
 saved manual alignment, restart, rename detection, and folder-based relocation.
 Both UI tests use isolated temporary library directories. They do not test League
 or physical audio output.
+`test:volume-ui` runs the renderer in Electron with controlled desktop responses
+and requires a desktop session. It checks pointer and keyboard volume changes
+across replay-clock updates, delayed replies, and failed saves in both controls.
 When `COMMS_TEST_FFMPEG` is provided (or bundled FFmpeg is available on Windows),
 the review test also imports a generated POV video, resolves missing track timing
 in the background, seeks using the canonical timeline, and verifies its cache,
