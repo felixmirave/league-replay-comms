@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "platform": "win32-x64",
+  "artifacts": [
+    {
+      "name": "mpv",
+      "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260928/mpv-x86_64-20260928-git-e470f8986e.7z",
+      "sha256": "6491ba670f836553fdd0d965c6e99ed8aa4053c1c79a5e4e30a1e127da64714a",
+      "requiredFiles": ["mpv.exe"]
+    },
+    {
+      "name": "ffmpeg",
+      "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.7z",
+      "sha256": "4705843ccaaf54257c16ad90f3e952ece33c17df964ecf7bfdbb0f49c7171077",
+      "root": "ffmpeg-9.0.2-essentials_build",
+      "binaryDirectory": "bin",
+      "requiredFiles": ["ffmpeg.exe", "ffprobe.exe"]
+    },
+    {
+      "name": "vulkan-loader",
+      "url": "https://github.com/electron/electron/releases/download/v44.5.0/electron-v44.5.0-win32-x64.zip",
+      "sha256": "b3405d8847bc5054cd16272f538d22ba5b73032945e85cef26241f7135035278",
+      "requiredFiles": ["vulkan-1.dll"],
+      "documentationFiles": ["LICENSE", "LICENSES.chromium.html", "version"]
+    }
+  ]
+}

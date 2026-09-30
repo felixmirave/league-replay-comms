@@ -1,0 +1,89 @@
+{
+  "name": "league-replay-comms",
+  "version": "0.1.1",
+  "private": true,
+  "description": "A local comms companion for League replay review",
+  "author": "League Replay Comms contributors",
+  "main": "dist/main/index.cjs",
+  "type": "module",
+  "commsValidation": {
+    "profileArgumentVersion": 1
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "setup:electron": "install-electron",
+    "prepare:native": "node scripts/prepare-native.mjs",
+    "prepare:ocr": "node scripts/prepare-ocr.mjs",
+    "prepare:notices": "node scripts/prepare-notices.mjs",
+    "test:packaging": "node --test scripts/notices.test.mjs scripts/windows-native.test.mjs scripts/portable-payload.test.mjs",
+    "test:validation": "node --test scripts/validation-steps.test.mjs scripts/artifact-evidence.test.mjs",
+    "validate:windows": "node scripts/validate-windows.mjs",
+    "verify:resources": "node scripts/verify-resources.mjs",
+    "verify:artifact": "node scripts/verify-artifact.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:ocr-corpus": "vitest run tests/integration/clock-corpus.test.ts",
+    "test:watch": "vitest",
+    "test:engine": "node scripts/test-engine.mjs",
+    "smoke:ui": "npm run build && node scripts/smoke-ui.mjs",
+    "smoke:driver": "npm run build && node scripts/smoke-driver.mjs",
+    "test:review-ui": "npm run build && node scripts/test-review-ui.mjs",
+    "check": "npm run typecheck && npm test && npm run build",
+    "package:win": "npm run check && npm run verify:resources && node scripts/package-win.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tesseract.js": "7.0.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@tesseract.js-data/eng": "1.0.0",
+    "@types/node": "22.18.6",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "7zip-bin": "5.2.0",
+    "electron": "44.5.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.63.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  },
+  "build": {
+    "compression": "normal",
+    "appId": "local.leaguereplaycomms.desktop",
+    "productName": "League Replay Comms",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": ".",
+        "filter": [
+          "**/*",
+          "!bin/linux-x64/**"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "LeagueReplayComms-${version}-${arch}.exe"
+    }
+  }
+}

@@ -1,0 +1,376 @@
+{
+  "schemaVersion": 1,
+  "components": [
+    {
+      "id": "mpv",
+      "name": "mpv",
+      "sourceCommit": "e470f8986e7d544c7ccf526e987b9f869f0b5904",
+      "sourceUrl": "https://github.com/mpv-player/mpv/tree/e470f8986e7d544c7ccf526e987b9f869f0b5904",
+      "notes": [
+        "mpv source revision matches shinchiro release 20260928. GPL/LGPL texts here describe mpv source licensing; the selected build links GPLv3-enabled FFmpeg.",
+        "These notices do not supply complete corresponding source, exact linked dependency revisions, build inputs or distribution source access. Native corresponding-source gate remains open."
+      ],
+      "files": [
+        {
+          "name": "Copyright.txt",
+          "url": "https://raw.githubusercontent.com/mpv-player/mpv/e470f8986e7d544c7ccf526e987b9f869f0b5904/Copyright",
+          "sha256": "bfe9ee4cceabcb8ecbfadf208d04156f73d801e6a57369a5606bb8341e204a23"
+        },
+        {
+          "name": "LICENSE-GPL.txt",
+          "url": "https://raw.githubusercontent.com/mpv-player/mpv/e470f8986e7d544c7ccf526e987b9f869f0b5904/LICENSE.GPL",
+          "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6"
+        },
+        {
+          "name": "LICENSE-LGPL.txt",
+          "url": "https://raw.githubusercontent.com/mpv-player/mpv/e470f8986e7d544c7ccf526e987b9f869f0b5904/LICENSE.LGPL",
+          "sha256": "72b672113d642cbb8ef5dcc76938db801983c56e50b1400ab930f1a64d6dc8d9"
+        }
+      ],
+      "version": "20260928-git-e470f8986e"
+    },
+    {
+      "id": "ocr-tesseract",
+      "name": "Tesseract fork in Tesseract.js core",
+      "sourceCommit": "2a9c1c49c360462733c386d2a44fcd22c4e21411",
+      "sourceUrl": "https://github.com/Balearica/tesseract/tree/2a9c1c49c360462733c386d2a44fcd22c4e21411",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects.",
+        "This is the modified Balearica fork selected by core 7.0.0, not an unmodified generic Tesseract release."
+      ],
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/Balearica/tesseract/2a9c1c49c360462733c386d2a44fcd22c4e21411/LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ]
+    },
+    {
+      "id": "ocr-leptonica",
+      "name": "Leptonica",
+      "sourceCommit": "4af068b56a9674da915debea4ed7e1b9885b17e8",
+      "sourceUrl": "https://github.com/DanBloomberg/leptonica/tree/4af068b56a9674da915debea4ed7e1b9885b17e8",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects."
+      ],
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/DanBloomberg/leptonica/4af068b56a9674da915debea4ed7e1b9885b17e8/leptonica-license.txt",
+          "sha256": "87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806"
+        }
+      ]
+    },
+    {
+      "id": "ocr-giflib",
+      "name": "giflib",
+      "sourceCommit": "fa37672085ce4b3d62c51627ab3c8cf2dda8009a",
+      "sourceUrl": "https://github.com/mirrorer/giflib/tree/fa37672085ce4b3d62c51627ab3c8cf2dda8009a",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects."
+      ],
+      "files": [
+        {
+          "name": "COPYING.txt",
+          "url": "https://raw.githubusercontent.com/mirrorer/giflib/fa37672085ce4b3d62c51627ab3c8cf2dda8009a/COPYING",
+          "sha256": "0c9b7990ecdca88b676db232c226548ac408b279f550d424d996f0d83591dd8e"
+        }
+      ]
+    },
+    {
+      "id": "ocr-libjpeg",
+      "name": "Independent JPEG Group libjpeg",
+      "sourceCommit": "6c0fcb8ddee365e7abc4d332662b06900612e923",
+      "sourceUrl": "https://github.com/LuaDist/libjpeg/tree/6c0fcb8ddee365e7abc4d332662b06900612e923",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects.",
+        "The complete upstream README is retained because its LEGAL ISSUES section contains the license. Required binary attribution: this software is based in part on the work of the Independent JPEG Group."
+      ],
+      "files": [
+        {
+          "name": "README-license.txt",
+          "url": "https://raw.githubusercontent.com/LuaDist/libjpeg/6c0fcb8ddee365e7abc4d332662b06900612e923/README",
+          "sha256": "c791da525733040e622ed257c7b096b8f5191b332604ead0c6bc2b54cbd8e0d1"
+        }
+      ]
+    },
+    {
+      "id": "ocr-libpng",
+      "name": "libpng",
+      "sourceCommit": "a37d4836519517bdce6cb9d956092321eca3e73b",
+      "sourceUrl": "https://github.com/glennrp/libpng/tree/a37d4836519517bdce6cb9d956092321eca3e73b",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects."
+      ],
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/glennrp/libpng/a37d4836519517bdce6cb9d956092321eca3e73b/LICENSE",
+          "sha256": "33ba4e187d8b0c8d7ab2bc2e522bb095219e03089e9aa0122b4fb9eb2b7de82b"
+        }
+      ]
+    },
+    {
+      "id": "ocr-libtiff",
+      "name": "libtiff",
+      "sourceCommit": "b51bb157123264e26d34c09cc673d213aea61fc7",
+      "sourceUrl": "https://gitlab.com/libtiff/libtiff/-/tree/b51bb157123264e26d34c09cc673d213aea61fc7",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects."
+      ],
+      "files": [
+        {
+          "name": "COPYRIGHT.txt",
+          "url": "https://gitlab.com/libtiff/libtiff/-/raw/b51bb157123264e26d34c09cc673d213aea61fc7/COPYRIGHT",
+          "sha256": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7"
+        }
+      ]
+    },
+    {
+      "id": "ocr-libwebp",
+      "name": "libwebp",
+      "sourceCommit": "20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c",
+      "sourceUrl": "https://github.com/webmproject/libwebp/tree/20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects."
+      ],
+      "files": [
+        {
+          "name": "COPYING.txt",
+          "url": "https://raw.githubusercontent.com/webmproject/libwebp/20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c/COPYING",
+          "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+        },
+        {
+          "name": "PATENTS.txt",
+          "url": "https://raw.githubusercontent.com/webmproject/libwebp/20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c/PATENTS",
+          "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
+        },
+        {
+          "name": "AUTHORS.txt",
+          "url": "https://raw.githubusercontent.com/webmproject/libwebp/20ef03ee351d4ff03fc5ff3ec4804a879d1b9d5c/AUTHORS",
+          "sha256": "f6399f3a0574412944d3a6c5910b62c6f9c4ec58728ca8eccd3a2cfe3e665fdb"
+        }
+      ]
+    },
+    {
+      "id": "ocr-openlibm",
+      "name": "OpenLibm",
+      "sourceCommit": "ae2d91698508701c83cab83714d42a1146dccf85",
+      "sourceUrl": "https://github.com/JuliaMath/openlibm/tree/ae2d91698508701c83cab83714d42a1146dccf85",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects.",
+        "The upstream notice distinguishes MIT/BSD/ISC/FDLIBM portions and LGPL test files. Copying that complete notice does not establish that test programs are linked into the runtime."
+      ],
+      "files": [
+        {
+          "name": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/JuliaMath/openlibm/ae2d91698508701c83cab83714d42a1146dccf85/LICENSE.md",
+          "sha256": "b1843fbf5b03f519a5f0a44fce751bdd1022ae7148614923f9d6293e17a18b17"
+        }
+      ]
+    },
+    {
+      "id": "ocr-zlib",
+      "name": "zlib",
+      "sourceCommit": "21767c654d31d2dccdde4330529775c6c5fd5389",
+      "sourceUrl": "https://github.com/madler/zlib/tree/21767c654d31d2dccdde4330529775c6c5fd5389",
+      "notes": [
+        "Source revision is a submodule gitlink in tesseract.js-core 7.0.0 at acffef2b66eb44a31df297e11d905f4b39001068; npm metadata records the same core gitHead: https://registry.npmjs.org/tesseract.js-core/7.0.0 . This collects published top-level notices, not a reconstruction of the linked WASM objects.",
+        "Upstream has no root LICENSE file at this revision; the complete README includes the zlib copyright notice and redistribution conditions."
+      ],
+      "files": [
+        {
+          "name": "README-license.txt",
+          "url": "https://raw.githubusercontent.com/madler/zlib/21767c654d31d2dccdde4330529775c6c5fd5389/README",
+          "sha256": "fc2c3368901700f0acdeb1d8afeaca5923296768ec6824ecdf627aac396001fd"
+        }
+      ]
+    },
+    {
+      "id": "ocr-eng-traineddata",
+      "name": "English integerized Tessdata Best model",
+      "version": "@tesseract.js-data/eng 1.0.0; 4.0.0_best_int",
+      "sourceCommit": "b86746569320a6103cea84cc2b8d9ee74f0f45d3",
+      "sourceUrl": "https://github.com/naptha/tessdata/blob/b86746569320a6103cea84cc2b8d9ee74f0f45d3/4.0.0_best_int/eng.traineddata.gz",
+      "notes": [
+        "npm metadata https://registry.npmjs.org/@tesseract.js-data/eng/1.0.0 records this source gitHead and wrapper license MIT. That metadata does not establish MIT licensing of the model.",
+        "The shipped model SHA-256 is 45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91; its Git blob SHA-1 730a6a59010b9440e38dd85f9fe6b6bf0637e6eb exactly matches the published source tree.",
+        "The original source tree has no LICENSE. Collected Apache-2.0 text was first added later, at naptha/tessdata commit 9c2fee3df42e6cdc19ebc1e4fb05a5bafa48dab0 dated 2023-08-21. Preserve this later-license provenance and the npm/repository metadata discrepancy.",
+        "The exact upstream Tessdata Best precursor revision and integerization procedure are not recorded in npm metadata and were not reconstructed here."
+      ],
+      "files": [
+        {
+          "name": "LICENSE-Apache-2.0.txt",
+          "url": "https://raw.githubusercontent.com/naptha/tessdata/9c2fee3df42e6cdc19ebc1e4fb05a5bafa48dab0/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    {
+      "id": "tr46",
+      "name": "tr46",
+      "sourceCommit": "a8009f9ce80ff5dbe71dd71e203afe4e4c878d28",
+      "sourceUrl": "https://github.com/jsdom/tr46/tree/a8009f9ce80ff5dbe71dd71e203afe4e4c878d28",
+      "notes": [
+        "npm metadata https://registry.npmjs.org/tr46/0.0.3 records this gitHead and MIT license; the original package/source tree has no license file.",
+        "Collected full MIT attribution was introduced later at upstream commit 3a6f29721e7063b9ffd421e461a54beae6170001 dated 2016-08-02. It is an upstream supplemental notice, not a file in the 0.0.3 release.",
+        "Generated lib/mappingTable.json is separately attributed to Unicode under unicode-idna-data."
+      ],
+      "files": [
+        {
+          "name": "LICENSE-MIT.txt",
+          "url": "https://raw.githubusercontent.com/jsdom/tr46/3a6f29721e7063b9ffd421e461a54beae6170001/LICENSE.md",
+          "sha256": "eeed1ca176eebad5c73870e233cfff03981fecd319c969475dfa3633036c336b"
+        }
+      ],
+      "version": "0.0.3",
+      "npmPackage": "tr46"
+    },
+    {
+      "id": "unicode-idna-data",
+      "name": "Unicode IDNA mapping data used by tr46",
+      "version": "8.0.0",
+      "sourceUrl": "https://www.unicode.org/Public/idna/8.0.0/IdnaMappingTable.txt",
+      "notes": [
+        "Reapplying the generator from tr46 source a8009f9ce80ff5dbe71dd71e203afe4e4c878d28 to the versioned official IDNA 8.0.0 table matches all 8,179 rows in the shipped node_modules/tr46/lib/mappingTable.json. Unicode 6.3, 7.0 and 9.0 do not match.",
+        "Original data notice: Copyright (c) 1991-2015 Unicode, Inc. The original data is modified by stripping comments and converting code-point ranges and replacements to a JSON numeric array.",
+        "The official current terms https://www.unicode.org/copyright.html apply Unicode License V3 to Unicode Data Files unless specific contrary terms are identified. The downloaded current license has a non-versioned official URL; its checksum pins the inspected 2026-09-30 contents.",
+        "For historical attribution, the second file preserves the official Unicode-owned ICU 56.1 license document at immutable commit 24c90c0693a0ba7aea00986c34676b55f766cfac. Its Unicode Data Files and Software section reproduces the 1991-2015 Unicode permission notice. The other ICU notices in that document are incidental; this does not claim ICU is part of tr46."
+      ],
+      "files": [
+        {
+          "name": "LICENSE-Unicode-V3.txt",
+          "url": "https://www.unicode.org/license.txt",
+          "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+        },
+        {
+          "name": "LICENSE-Unicode-2015-reference.html",
+          "url": "https://raw.githubusercontent.com/unicode-org/icu/24c90c0693a0ba7aea00986c34676b55f766cfac/icu4c/license.html",
+          "sha256": "a4fd81c0bb0aee44d90376562f53c62d17ce252b93190251d172ec837ee5c6c8"
+        }
+      ]
+    },
+    {
+      "id": "buffer",
+      "name": "buffer",
+      "sourceCommit": "f52dffd9df0445b93c0c9065c2f8f0f46b2c729a",
+      "sourceUrl": "https://github.com/feross/buffer/tree/f52dffd9df0445b93c0c9065c2f8f0f46b2c729a",
+      "notes": [
+        "Exact gitHead resolved from primary npm metadata https://registry.npmjs.org/buffer/6.0.3 .",
+        "Included in Tesseract.js 7.0.0 browser worker distribution even when the application executes its separate Node worker.",
+        "The shipped Tesseract.js browser worker source map contains index.js bytes exactly equal to this npm gitHead source; component identity was verified beyond the upstream lockfile."
+      ],
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/feross/buffer/f52dffd9df0445b93c0c9065c2f8f0f46b2c729a/LICENSE",
+          "sha256": "06bafa45fdad2579ba0e43b0c9b2c6290287c99c4203c300254a462b38a307f6"
+        }
+      ],
+      "version": "6.0.3"
+    },
+    {
+      "id": "base64-js",
+      "name": "base64-js",
+      "sourceCommit": "88957c9943c7e2a0f03cdf73e71d579e433627d3",
+      "sourceUrl": "https://github.com/beatgammit/base64-js/tree/88957c9943c7e2a0f03cdf73e71d579e433627d3",
+      "notes": [
+        "Exact gitHead resolved from primary npm metadata https://registry.npmjs.org/base64-js/1.5.1 .",
+        "Included in Tesseract.js 7.0.0 browser worker distribution even when the application executes its separate Node worker.",
+        "The shipped Tesseract.js browser worker source map contains index.js bytes exactly equal to this npm gitHead source; component identity was verified beyond the upstream lockfile."
+      ],
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/beatgammit/base64-js/88957c9943c7e2a0f03cdf73e71d579e433627d3/LICENSE",
+          "sha256": "5b37224c080cdcc97c871ada971c224e9926370fe74f11b539aa1cf9f3b1aca1"
+        }
+      ],
+      "version": "1.5.1"
+    },
+    {
+      "id": "ieee754",
+      "name": "ieee754",
+      "sourceCommit": "b60d148be9cad718f9ff007c211c2427cdc180a4",
+      "sourceUrl": "https://github.com/feross/ieee754/tree/b60d148be9cad718f9ff007c211c2427cdc180a4",
+      "notes": [
+        "Exact gitHead resolved from primary npm metadata https://registry.npmjs.org/ieee754/1.2.1 .",
+        "Included in Tesseract.js 7.0.0 browser worker distribution even when the application executes its separate Node worker.",
+        "The shipped Tesseract.js browser worker source map contains index.js bytes exactly equal to this npm gitHead source; component identity was verified beyond the upstream lockfile."
+      ],
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/feross/ieee754/b60d148be9cad718f9ff007c211c2427cdc180a4/LICENSE",
+          "sha256": "18d45466ba3253deae04667e267a91ea8de8548f18c1125264d1c9db28194cc1"
+        }
+      ],
+      "version": "1.2.1"
+    },
+    {
+      "id": "emscripten-runtime",
+      "name": "Emscripten runtime and bundled C/C++ runtime notices",
+      "sourceCommit": "09f52557f0d48b65b8c724853ed8f4e8bf80e669",
+      "sourceUrl": "https://github.com/emscripten-core/emscripten/tree/09f52557f0d48b65b8c724853ed8f4e8bf80e669",
+      "notes": [
+        "Tesseract.js core acffef2b66eb44a31df297e11d905f4b39001068/build-with-docker.sh pins Emscripten 4.0.15. The official 4.0.15 tag resolves to this source commit.",
+        "These are Emscripten and its bundled runtime license texts, not a claim that every runtime source file or exception path is linked. The complete WASM link map/per-file attribution closure has not been audited."
+      ],
+      "files": [
+        {
+          "name": "LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/09f52557f0d48b65b8c724853ed8f4e8bf80e669/LICENSE",
+          "sha256": "620a78084fc7ca97c0b5dea9abf891f3ffcadfdbf305276f099c9c4e12fc1d86"
+        },
+        {
+          "name": "AUTHORS.txt",
+          "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/09f52557f0d48b65b8c724853ed8f4e8bf80e669/AUTHORS",
+          "sha256": "56f7df65203d4858dac19cafe3a84a8c49abaff56b67d32d2d463d5fef6e440b"
+        },
+        {
+          "name": "musl-COPYRIGHT.txt",
+          "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/09f52557f0d48b65b8c724853ed8f4e8bf80e669/system/lib/libc/musl/COPYRIGHT",
+          "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
+        },
+        {
+          "name": "compiler-rt-LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/09f52557f0d48b65b8c724853ed8f4e8bf80e669/system/lib/compiler-rt/LICENSE.TXT",
+          "sha256": "1a8f1058753f1ba890de984e48f0242a3a5c29a6a8f2ed9fd813f36985387e8d"
+        },
+        {
+          "name": "libcxx-LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/09f52557f0d48b65b8c724853ed8f4e8bf80e669/system/lib/libcxx/LICENSE.TXT",
+          "sha256": "539dd7aed86e8a4f12cbdd0e6c50c189c7d74847e4fecc64ce2c6ee3a01da38b"
+        },
+        {
+          "name": "libcxxabi-LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/emscripten-core/emscripten/09f52557f0d48b65b8c724853ed8f4e8bf80e669/system/lib/libcxxabi/LICENSE.TXT",
+          "sha256": "e2b35be49f7284a45b7baca8fc7b3ab7440e7902392b2528a457816b5bb2a15c"
+        }
+      ],
+      "version": "4.0.15"
+    }
+  ],
+  "unresolved": [
+    "This notice collection does not provide mpv or Gyan FFmpeg corresponding source, exact linked dependency revisions, patches, build recipes or release source access.",
+    "Native OCR root notices and Emscripten runtime notices are collected, but a complete per-file notice audit against actual linked WASM objects has not been performed.",
+    "The English model and tr46 full license texts come from explicitly identified later upstream commits; original release trees lacked those files. Preserve these qualifications.",
+    "English model npm-wrapper MIT metadata conflicts with the model repository Apache-2.0 license; do not label the model MIT. Its exact Tessdata Best precursor/conversion provenance remains unverified.",
+    "Electron/Chromium and portable-launcher source/notice coverage still needs a complete shipped-component audit; preserved upstream notices are not a release certification."
+  ],
+  "requirements": {
+    "packages": {
+      "tesseract.js": "7.0.0",
+      "tesseract.js-core": "7.0.0",
+      "@tesseract.js-data/eng": "1.0.0",
+      "tr46": "0.0.3",
+      "electron": "44.5.0"
+    },
+    "nativeArtifacts": {
+      "mpv": "6491ba670f836553fdd0d965c6e99ed8aa4053c1c79a5e4e30a1e127da64714a",
+      "ffmpeg": "4705843ccaaf54257c16ad90f3e952ece33c17df964ecf7bfdbb0f49c7171077",
+      "vulkan-loader": "b3405d8847bc5054cd16272f538d22ba5b73032945e85cef26241f7135035278"
+    }
+  }
+}

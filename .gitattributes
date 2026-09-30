@@ -1,0 +1,5 @@
+# Keep source and lockfile bytes consistent across Linux and Windows checkouts.
+* text=auto eol=lf
+
+# Preserve the published certificate exactly, including its CRLF line endings.
+/resources/certificates/riotgames.pem -text whitespace=cr-at-eol

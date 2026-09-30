@@ -1,0 +1,19 @@
+node_modules/
+dist/
+release/
+.cache/
+coverage/
+*.log
+resources/bin/
+resources/ocr/
+resources/native-docs/
+resources/notices/
+resources/notices.stage-*/
+resources/notices.previous-*/
+tests/fixtures/generated/
+
+# Local research
+/research/
+
+# Local GitLab runner configuration; hosting is on GitHub
+/.gitlab-ci.yml
