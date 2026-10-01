@@ -6,7 +6,7 @@ Run the full build and automated desktop workflow from the repository root:
 npm.cmd run validate:windows
 ```
 
-This is a developer/CI procedure. It requires Windows x64, Node 22.18 or later,
+This is a developer/CI procedure. It requires Windows x64, a [supported Node.js version](../../README.md#development),
 npm, Windows PowerShell, and an active desktop session running as a standard user.
 Keep an audio output endpoint available and close League replays before running.
 Dependency preparation needs network access and sufficient disk space for native

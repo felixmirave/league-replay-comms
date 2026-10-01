@@ -53,7 +53,14 @@ See [the implementation plan](IMPLEMENTATION_PLAN.md) and
 
 ## Development
 
-Use Node.js 22.18 or later. Windows is the supported application platform.
+Use Node.js 22.18+ from the 22.x line, or Node.js 23.6+. Windows is the supported
+application platform.
+
+Application code, tooling, and tests use TypeScript. Node runs the scripts in
+`scripts/` directly; use explicit `.ts` extensions for their local runtime imports
+and erasable type syntax. `npm run typecheck` checks both the application and
+scripts. Electron test entry points in `scripts/fixtures/` are checked with the
+application and bundled to JavaScript before launch.
 
 ```sh
 npm ci
@@ -181,7 +188,7 @@ Resource verification checks x64 PE imports and local DLL exports, including mpv
 Vulkan loader, so startup does not rely on an extra graphics-runtime installation
 or the launch directory. This structural check does not replace Windows execution.
 The dependency-check regression tests run with
-`node --test scripts/windows-native.test.mjs` after native preparation.
+`node --test scripts/windows-native.test.ts` after native preparation.
 
 Packaging stages the application and compresses the portable executable in separate
 processes to bound memory use. `verify:artifact` checks the current staged modules

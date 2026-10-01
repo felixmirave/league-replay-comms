@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFile, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
+import { analyzeTiming } from './timing-measurements.ts';
+import { digestFile, verifiedArtifact } from './artifact-evidence.ts';
+
+assert.equal(process.argv.length, 4, 'Usage: node scripts/analyze-timing.ts <measurements.json> <new-report.json>');
+const inputPath = resolve(process.argv[2]!), outputPath = resolve(process.argv[3]!);
+assert((await stat(inputPath)).size <= 32 * 1024 * 1024, 'Measurement file exceeds 32 MiB');
+const sourceBytes = await readFile(inputPath);
+const input = JSON.parse(sourceBytes.toString('utf8'));
+const result = analyzeTiming(input);
+const artifact = await verifiedArtifact(resolve(dirname(inputPath), input.artifactPath));
+const capturePath = resolve(dirname(inputPath), input.capturePath);
+const before = await stat(capturePath);
+assert(before.isFile(), 'Capture must be a local file');
+const captureSha256 = await digestFile(capturePath), after = await stat(capturePath);
+for (const field of ['size', 'mtimeMs', 'ctimeMs', 'dev', 'ino'] as const) assert.equal(after[field], before[field], 'Capture changed while hashing; finish recording before analysis');
+const artifactEvidence = { name: artifact.artifact, sha256: artifact.sha256, bytes: artifact.bytes };
+const source = { annotations: basename(inputPath), annotationsSha256: createHash('sha256').update(sourceBytes).digest('hex'), capture: basename(capturePath), captureSha256 };
+result.evidence.captureAndArtifactIntegrityVerified = true;
+const report = { ...result, artifact: artifactEvidence, source, analyzedAt: new Date().toISOString() };
+await writeFile(outputPath, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
+console.log(`Wrote ${outputPath}; capture and artifact digests recorded. This report does not certify release accuracy.`);

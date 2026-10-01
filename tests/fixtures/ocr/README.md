@@ -16,7 +16,7 @@ showing `floor(t + 100)` as `mm:ss`. Its original video PTS starts at 5 seconds.
 With canonical media origin 5, the known offset is −100 seconds. It contains no
 audio; this fixture isolates video decoding/OCR and never serves as a comms file.
 Regenerate with `COMMS_TEST_FFMPEG` and `COMMS_TEST_FONT` set, then run
-`node tests/fixtures/ocr/generate-video.mjs`. The generation script uses FFmpeg's
+`node tests/fixtures/ocr/generate-video.ts`. The generation script uses FFmpeg's
 original input time, before adding the output timestamp origin.
 
 ## Real images

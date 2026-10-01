@@ -3,7 +3,7 @@
 Generate a known 40-minute recording for engine and seek experiments:
 
 ```sh
-node scripts/generate-timing-fixture.mjs reference.wav
+node scripts/generate-timing-fixture.ts reference.wav
 ```
 
 The command writes 48 kHz mono 16-bit PCM plus `reference.wav.markers.json`, with
@@ -111,7 +111,7 @@ Do not fill missing uncertainty with zero to obtain a passing result.
 ## Generate and review the report
 
 ```sh
-node scripts/analyze-timing.mjs measurements.json timing-report.json
+node scripts/analyze-timing.ts measurements.json timing-report.json
 ```
 
 The command validates annotations, verifies the executable against its payload

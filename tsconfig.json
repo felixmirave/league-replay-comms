@@ -15,5 +15,6 @@
     "types": ["node", "electron"],
     "noEmit": true
   },
-  "include": ["src", "tests", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests", "vite.config.ts", "vitest.config.ts", "scripts/fixtures", "scripts/ui-types.d.ts"],
+  "exclude": ["tests/fixtures"]
 }

@@ -1,0 +1,42 @@
+import { build } from 'esbuild';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { _electron as electron } from 'playwright-core';
+import executablePath from './electron-executable.ts';
+
+// The launcher needs a BMP before Electron exists. Keep the generated asset in
+// git so ordinary builds need neither a desktop nor an image conversion tool.
+const folder = await mkdtemp(join(tmpdir(), 'comms-splash-'));
+let app;
+try {
+  await build({ entryPoints: ['scripts/fixtures/blank-window.ts'], outfile: join(folder, 'main.cjs'), bundle: true, platform: 'node', format: 'cjs', external: ['electron'] });
+  app = await electron.launch({ env: { ...process.env, COMMS_FIXTURE_HIDDEN: '1' }, executablePath, args: [join(folder, 'main.cjs'), `--user-data-dir=${join(folder, 'profile')}`, ...(process.env.COMMS_TEST_NO_SANDBOX === '1' ? ['--no-sandbox'] : [])] });
+  const page = await app.firstWindow();
+  // SVG loaded as an image cannot fetch external images; embed the shared logo.
+  const icon = await readFile('src/renderer/public/icon.png');
+  const svg = (await readFile('build/splash.svg', 'utf8')).replace('href="../src/renderer/public/icon.png"', `href="data:image/png;base64,${icon.toString('base64')}"`);
+  const { width, height, rgba } = await page.evaluate(async svg => {
+    const image = new Image();
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas context unavailable');
+    context.drawImage(image, 0, 0);
+    return { width: canvas.width, height: canvas.height, rgba: Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data) };
+  }, svg);
+  // Windows BITMAPINFOHEADER, uncompressed 24-bit BGR with bottom-up rows.
+  const stride = Math.ceil(width * 3 / 4) * 4;
+  const bmp = Buffer.alloc(54 + stride * height);
+  bmp.write('BM'); bmp.writeUInt32LE(bmp.length, 2); bmp.writeUInt32LE(54, 10);
+  bmp.writeUInt32LE(40, 14); bmp.writeInt32LE(width, 18); bmp.writeInt32LE(height, 22);
+  bmp.writeUInt16LE(1, 26); bmp.writeUInt16LE(24, 28); bmp.writeUInt32LE(stride * height, 34);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const source = (y * width + x) * 4, target = 54 + (height - y - 1) * stride + x * 3;
+    bmp[target] = rgba[source + 2]!; bmp[target + 1] = rgba[source + 1]!; bmp[target + 2] = rgba[source]!;
+  }
+  await writeFile('build/splash.bmp', bmp);
+  console.log(`Created build/splash.bmp (${width} × ${height}, ${bmp.length} bytes).`);
+} finally { await app?.close(); await rm(folder, { recursive: true, force: true }); }
