@@ -144,3 +144,47 @@ test('disconnect keeps the editor and offset without automatically restarting au
   assert.equal(await button('Start listening').isEnabled(), true);
   assert.equal((await calls()).some(command => command.type === 'follow'), false);
 });
+
+test('clock detection is video-only, respects busy state, and never saves an unaccepted default offset', async () => {
+  const detect = button('Detect offset from video clock');
+  assert.equal(await detect.count(), 0);
+  await page.evaluate(() => {
+    const t = window.timingTest;
+    t.state.media.probe = { streams: [{ type: 'audio', index: 0 }] }; t.publish();
+  }); await paint();
+  assert.equal(await detect.count(), 0);
+  await page.evaluate(() => {
+    const t = window.timingTest; t.state.workflow.editorKey++;
+    t.state.media.probe.streams.push({ type: 'video', index: 1 });
+    t.state.library.alignment = undefined; t.state.library.boundToRuntime = false;
+    t.state.sync.state = 'preview'; t.state.busy = true; t.publish();
+  }); await paint();
+  assert.equal(await detect.isDisabled(), true);
+  await page.evaluate(() => { window.timingTest.state.busy = false; window.timingTest.publish(); }); await paint();
+  await detect.click();
+  assert.deepEqual(await calls(), [{ type: 'analyze-clock' }]);
+  assert.equal(await detect.isDisabled(), true);
+  assert.equal(await input().isDisabled(), true);
+  await reply(0, 'Recording unavailable');
+  assert.equal(await page.locator('.timing-editor [role=alert]').innerText(), 'Recording unavailable');
+  assert.equal(await input().inputValue(), '0');
+  assert.equal(await detect.isEnabled(), true);
+  await detect.click();
+  assert.deepEqual(await calls(), [{ type: 'analyze-clock' }, { type: 'analyze-clock' }]);
+  await reply(1);
+});
+
+test('clock detection accepts incomplete input after a queued manual edit without submitting another offset', async () => {
+  await page.evaluate(() => {
+    const t = window.timingTest;
+    t.state.media.probe = { streams: [{ type: 'video', index: 0 }] }; t.publish();
+  }); await paint();
+  await input().fill('8');
+  await input().fill('-');
+  assert.equal(await button('Done').isDisabled(), true);
+  await button('Detect offset from video clock').click();
+  assert.deepEqual(await calls(), [{ type: 'align', offsetSeconds: 8 }, { type: 'analyze-clock' }]);
+  await reply(0); await reply(1);
+  assert.equal(await input().inputValue(), '-');
+  assert.equal(await page.locator('.timing-editor [role=alert]').count(), 0);
+});

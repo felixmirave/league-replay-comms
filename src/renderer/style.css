@@ -73,6 +73,7 @@ dl { display: grid; grid-template-columns: 130px 1fr; gap: 10px; font-size: 13px
 @media(max-width: 620px) { .task { padding: 28px 22px; } header { padding: 16px 22px; } .track-choice { flex-wrap: wrap; } }
 
 .timing-editor > .actions, .task > .actions { position: sticky; bottom: 0; z-index: 2; padding: 14px 0; background: white; }
+.timing-detection { margin-bottom: 24px; }
 .timing-offset { max-width: 300px; }
 .timing-offset input { width: 100%; font-size: 26px; font-variant-numeric: tabular-nums; }
 .timing-steps { display: flex; flex-wrap: wrap; gap: 12px; }

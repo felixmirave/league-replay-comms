@@ -75,7 +75,7 @@ The effective mapping remains `recordingSeconds = replaySeconds + offset`. Valid
 
 Entering and leaving the editor preserves active listening. Start/Stop listening is explicit and available in place. The controller follows replay playback, pauses, and seeks while edits force synchronization to the new offset. Offline entry remains available, but auditioning the adjustment requires a connected replay. Never pause or seek League automatically.
 
-Remove waveform generation, caches, preview IPC, playhead-pair anchoring, and recording seek controls. Audio-track audition remains available when choosing a track. A late automatic result must never overwrite a manual edit. **Read game clock again** in Settings pauses listening and replaces the offset only on success; failure retains accepted timing.
+Remove waveform generation, caches, preview IPC, playhead-pair anchoring, and recording seek controls. Audio-track audition remains available when choosing a track. A late automatic result must never overwrite a manual edit. Video recordings offer **Detect offset from video clock** in Adjust timing, also available as **Read game clock again** in Settings. Detection pauses listening and replaces the offset only on success; failure retains accepted timing.
 
 ### Subsequent reviews
 

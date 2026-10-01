@@ -55,7 +55,7 @@ export function TimingEditor({ snapshot, busy, send }: Props) {
   const action = async (command: UserCommand) => {
     setActing(true); setError('');
     try {
-      if (command.type !== 'stop') {
+      if (command.type !== 'stop' && command.type !== 'analyze-clock') {
         const number = offset(draft.current);
         if (number === undefined) throw new Error('Enter a number of seconds between −86400 and 86400.');
         if (applied.current !== number) await apply(number);
@@ -74,6 +74,10 @@ export function TimingEditor({ snapshot, busy, send }: Props) {
   return <div className="timing-editor">
     {snapshot.library?.clock?.status === 'needs-attention' && <p className="notice">Automatic timing could not be detected. Adjust the offset below.</p>}
     {snapshot.library?.alignmentConflict && <p className="notice">Different timing settings were saved for this recording. Set the correct offset below.</p>}
+    {snapshot.media?.probe?.streams.some(stream => stream.type === 'video') && <div className="timing-detection">
+      <button disabled={disabled} aria-describedby="timing-detection-help" onClick={() => void action({ type: 'analyze-clock' })}>Detect offset from video clock</button>
+      <p id="timing-detection-help" className="muted">Reads the clock in the top-right corner. Listening pauses during detection.</p>
+    </div>}
     <label className="timing-offset">Recording offset (seconds)<input type="text" inputMode="decimal" value={value} disabled={disabled} aria-invalid={!valid} aria-describedby="offset-help" onChange={event => change(event.target.value)} onKeyDown={event => {
       if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); adjust(event.key === 'ArrowUp' ? 1 : -1, event); }
     }} /></label>

@@ -23,6 +23,7 @@ the recording identity; following stays silent outside the selected track.
 Automatic detection reads the game clock in the top-right corner of the video.
 If it cannot read a usable clock tick, the app opens manual alignment directly.
 Type an offset or move the recording back/forward while listening alongside League.
+For videos, **Adjust timing → Detect offset from video clock** retries automatic alignment.
 There are no waveform, timestamp-pair, or clock-region selection steps. The selected
 pair of clock frames is cached by recording contents; its midpoint is recomputed when reused.
 

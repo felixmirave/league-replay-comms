@@ -98,7 +98,9 @@ Valid edits apply and save immediately. Keep the field responsive across clock t
 
 Opening the editor preserves an active listening session. **Start listening / Stop listening** controls replay-following in place; **Done** returns to review without changing that intent. A first offset of zero is valid, but must be accepted before Start or Done. Opening the editor and changing its value never start audio by themselves. Pause and seek League directly.
 
-Offline users can enter and save the same offset. Explain that connecting to League is required to hear adjustments. A disconnect retains the input and requires an explicit Start after reconnecting. Late automatic results cannot replace accepted manual edits. **Settings → Read game clock again** restarts detection and pauses listening.
+Offline users can enter and save the same offset. Explain that connecting to League is required to hear adjustments. A disconnect retains the input and requires an explicit Start after reconnecting. Late automatic results cannot replace accepted manual edits.
+
+For video recordings, show **Detect offset from video clock** above the offset field. It restarts top-right clock detection and pauses listening, even if the field contains an incomplete value. Replace the saved offset only on success; failure returns to manual alignment with the accepted timing retained. **Settings → Read game clock again** provides the same action.
 
 ## While listening and recovering
 

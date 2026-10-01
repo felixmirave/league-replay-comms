@@ -348,6 +348,11 @@ try {
     assert.equal(await window.locator('.task input').count(), 1);
     await mkdir('.cache', { recursive: true });
     await window.screenshot({ path: '.cache/timing-editor.png', fullPage: true });
+    await window.getByRole('button', { name: 'Detect offset from video clock', exact: true }).click();
+    await waitState(window, state => state.library?.clock?.status === 'running');
+    const failedRetry = await waitState(window, state => state.workflow?.state === 'alignment.manual' && state.library?.clock?.status === 'needs-attention', 180000);
+    assert.ok(Math.abs(failedRetry.offsetSeconds + .6) < 1e-8, 'Failed clock detection must retain the accepted manual offset');
+    assert.equal(await window.getByLabel('Recording offset (seconds)', { exact: true }).inputValue(), '-0.6');
     console.log('Real Electron fallback: failed detection opens one live offset, with no waveform, frame selection, or timestamp pairs.');
     const secondTrack = inspected.media.tracks[1].id;
     await window.evaluate(async id => { await window.review.command({ type: 'track', trackId: id }); await window.review.command({ type: 'align', offsetSeconds: 2.5 }); }, secondTrack);
@@ -385,8 +390,8 @@ try {
       await window.getByRole('button', { name: 'Done', exact: true }).click();
       await waitState(window, state => state.offsetSeconds === 3 && !state.library?.clock);
       await window.getByRole('button', { name: 'Adjust timing', exact: true }).click();
-      await window.getByRole('button', { name: 'Settings', exact: true }).click();
-      await window.getByRole('button', { name: 'Read game clock again', exact: true }).click();
+      await window.getByLabel('Recording offset (seconds)', { exact: true }).fill('-');
+      await window.getByRole('button', { name: 'Detect offset from video clock', exact: true }).click();
       const estimate = await waitState(window, state => state.library?.clock?.status === 'accepted' || state.library?.clock?.status === 'needs-attention', 180000);
       assert.equal(estimate.library.clock.status, 'accepted', estimate.library.clock.message);
       assert.ok(Math.abs(estimate.offsetSeconds + 100) < 0.06);
