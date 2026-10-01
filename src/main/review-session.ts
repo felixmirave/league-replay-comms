@@ -34,6 +34,8 @@ export class ReviewSession {
   private readonly edits: AlignmentEdits;
   private exitBarrier?: Promise<void>;
   private releaseExit?: () => void;
+  private volumeTimer?: ReturnType<typeof setTimeout>;
+  private volumeSave: Promise<void> = Promise.resolve();
 
   constructor(private readonly library: ReviewLibrary, private readonly identities: IdentityJobs, private readonly playback: PlaybackPort, private readonly changed: () => void, private readonly prober?: MediaProber, private readonly previews?: ReviewPreview, private readonly clocks?: VideoClockJobs, private readonly preferences = new PreferenceEdits(library)) {
     this.edits = new AlignmentEdits(library);
@@ -46,10 +48,13 @@ export class ReviewSession {
   }
   async settled(): Promise<void> {
     do { await this.changes; await Promise.all([...this.jobs]); } while (this.jobs.size);
-    await this.changes; await this.library.flush(); await this.clocks?.flush?.();
+    await this.changes;
+    if (!this.closed) await this.flushVolume().catch(() => undefined);
+    await this.volumeSave; await this.library.flush(); await this.clocks?.flush?.();
   }
   close(): void {
     this.closed = true;
+    clearTimeout(this.volumeTimer);
     this.resumeAfterExit();
     this.mediaAbort?.abort(); this.searchAbort?.abort();
     this.clockAbort?.abort();
@@ -145,9 +150,13 @@ export class ReviewSession {
   }); }
   retrySave(): Promise<void> { return this.mutate(() => this.retryPending()); }
   setVolume(volume: number): Promise<void> { return this.mutate(async () => {
-    const results = await Promise.allSettled([this.playback.send({ type: 'volume', volume }), this.preferences.setting('volume', volume)]);
+    // Publish accepted intent before acknowledging playback. Persistence must
+    // neither delay the next slider input nor flash a save-failure warning.
+    this.preferences.stageVolume(volume);
     this.refresh();
-    for (const result of results) if (result.status === 'rejected') throw result.reason;
+    clearTimeout(this.volumeTimer);
+    this.volumeTimer = setTimeout(() => { void this.flushVolume().catch(() => undefined); }, 250);
+    await this.playback.send({ type: 'volume', volume });
   }); }
   addFolder(path: string): Promise<void> { return this.mutate(async () => {
     const folders = this.preferences.settings().mediaFolders;
@@ -424,10 +433,19 @@ export class ReviewSession {
     finally { this.changed(); }
   }
   private async retryPending(): Promise<void> {
+    clearTimeout(this.volumeTimer);
+    await this.volumeSave;
     const results = await Promise.allSettled([this.edits.retry(), this.preferences.retry()]);
     this.refresh();
     const errors = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
     if (errors.length) throw new AggregateError(errors.map(result => result.reason), this.snapshot().saveError);
+  }
+  private flushVolume(): Promise<void> {
+    clearTimeout(this.volumeTimer);
+    const operation = this.volumeSave.then(() => this.preferences.flushVolume()).finally(() => this.refresh());
+    // Errors stay attached to the retained preference and are published above.
+    this.volumeSave = operation.catch(() => undefined);
+    return operation;
   }
   private refresh(): void {
     const data = this.library.snapshot();

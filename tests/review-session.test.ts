@@ -166,8 +166,10 @@ describe('review workflow', () => {
     await session.openMedia(media); await session.settled();
     const directory = join(folder, 'data'), moved = join(folder, 'unavailable-data');
     await rename(directory, moved); await writeFile(directory, 'not a directory');
-    await expect(session.setVolume(25)).rejects.toThrow();
-    await expect(session.setVolume(38)).rejects.toThrow();
+    await session.setVolume(25);
+    await session.setVolume(38);
+    await session.settled();
+    expect(session.snapshot().saveError).toContain('Volume');
     await expect(session.addFolder(join(folder, 'first'))).rejects.toThrow();
     await expect(session.addFolder(join(folder, 'second'))).rejects.toThrow();
     expect(session.snapshot()).toMatchObject({ volume: 38, folders: [join(folder, 'first'), join(folder, 'second')], unsavedPreferences: 2 });
@@ -189,6 +191,7 @@ describe('review workflow', () => {
     player.send = async () => { throw new Error('Player disconnected'); };
     await expect(session.setVolume(29)).rejects.toThrow('Player disconnected');
     expect(session.snapshot().volume).toBe(29);
+    await session.settled();
     expect((await ReviewLibrary.open(join(folder, 'data'))).snapshot().settings.volume).toBe(29);
     expect(session.snapshot().saveError).toBeUndefined();
   });
@@ -393,6 +396,8 @@ describe('review workflow', () => {
     vi.spyOn(library, 'saveAlignment').mockImplementationOnce(async (...args) => { started(); await blocked; await actual(...args); });
     const first = session.setManualOffset(10), second = session.nudge(0.01), exit = session.prepareExit();
     await waiting;
+    expect(session.snapshot().saveError).toBeUndefined();
+    expect(session.snapshot().unsavedAlignments).toBe(1);
     let frozen = false; void exit.then(() => { frozen = true; });
     expect(frozen).toBe(false);
     finishWrite(); await Promise.all([first, second, exit]);

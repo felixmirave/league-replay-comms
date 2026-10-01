@@ -11,10 +11,10 @@ export class AlignmentEdits {
   constructor(private readonly library: ReviewLibrary) {}
   get count(): number { return this.edits.size; }
   message(): string | undefined {
-    const first = this.edits.values().next().value as Edit | undefined;
+    const failed = [...this.edits].filter(edit => edit.error !== undefined);
+    const first = failed[0];
     if (!first) return;
-    const reason = first.error ?? 'Saving timing…';
-    return `${this.count} unsaved alignment${this.count === 1 ? '' : 's'}. ${basename(first.media.path)}: ${reason}`;
+    return `${failed.length} unsaved alignment${failed.length === 1 ? '' : 's'}. ${basename(first.media.path)}: ${first.error}`;
   }
   lookup(media: MediaReference, trackKey: string): Alignment | undefined {
     const entries = [...this.edits].filter(edit => sameMedia(edit.media, media) && edit.trackKey === trackKey);

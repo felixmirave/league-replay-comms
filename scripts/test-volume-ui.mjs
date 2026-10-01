@@ -3,6 +3,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { _electron as electron } from 'playwright-core';
 import executablePath from 'electron';
@@ -10,8 +11,11 @@ import executablePath from 'electron';
 // Exercise the actual renderer and native range input. The desktop boundary is
 // controlled so old snapshots and delayed command replies arrive deterministically.
 let folder, app, page, errors;
+let ReviewLibrary, ReviewSession;
 before(async () => {
   folder = await mkdtemp(join(tmpdir(), 'comms-volume-'));
+  await build({ stdin: { contents: "export { ReviewLibrary } from './src/library/library'; export { ReviewSession } from './src/main/review-session';", resolveDir: process.cwd() }, outfile: join(folder, 'backend.mjs'), bundle: true, platform: 'node', format: 'esm' });
+  ({ ReviewLibrary, ReviewSession } = await import(pathToFileURL(join(folder, 'backend.mjs')).href));
   await build({ entryPoints: ['src/renderer/main.tsx'], outfile: join(folder, 'renderer.js'), bundle: true, define: { 'process.env.NODE_ENV': '"production"' } });
   await writeFile(join(folder, 'main.cjs'), `const { app, BrowserWindow } = require('electron');
 app.whenReady().then(() => { const window = new BrowserWindow({ width: 780, height: 820 }); window.loadURL('about:blank'); });`);
@@ -173,4 +177,54 @@ test('a failed older command cannot overwrite a newer volume edit', async () => 
   assert.equal(await page.locator('.task [role=alert]').count(), 0);
   await reply(1, 98);
   assert.equal(await slider().inputValue(), '98');
+});
+
+test('real volume saves keep the layout stable while actual failures remain retryable', async () => {
+  const library = await ReviewLibrary.open(join(folder, 'library'));
+  const persist = library.updateSettings.bind(library);
+  let release, started;
+  const gate = new Promise(resolve => { release = resolve; });
+  const writing = new Promise(resolve => { started = resolve; });
+  library.updateSettings = async value => { started(); await gate; await persist(value); };
+  const state = { sync: { state: 'preview', generation: 0 }, paused: true, busy: false };
+  let session;
+  const publish = async () => {
+    if (session) await page.evaluate(view => {
+      Object.assign(window.volumeTest.state.library, view, { recordingReady: true });
+      window.volumeTest.publish();
+    }, session.snapshot());
+  };
+  session = new ReviewSession(library, {}, { snapshot: () => state, send: async () => state }, () => { void publish(); });
+  await page.exposeFunction('persistVolume', command => command.type === 'retry-save' ? session.retrySave() : session.setVolume(command.volume));
+  await page.evaluate(() => { window.review.command = command => window.persistVolume(command); });
+  await publish(); await paint();
+  const bounds = await page.locator('.task').boundingBox();
+  try {
+    await slider().focus();
+    await page.keyboard.press('ArrowLeft');
+    await writing;
+    assert.equal(session.snapshot().unsavedPreferences, 1, 'Exercise a real pending preference write');
+    for (let i = 0; i < 5; i++) {
+      await publish(); await paint();
+      assert.equal(await page.locator('.context .notice').count(), 0, 'A pending successful save must not be presented as a failure');
+      assert.deepEqual(await page.locator('.task').boundingBox(), bounds, 'Saving must not shift the page');
+      assert.equal(await slider().inputValue(), '99');
+      assert.equal(await stop().isEnabled(), true);
+    }
+    release(); await session.settled(); await publish(); await paint();
+    assert.equal(library.snapshot().settings.volume, 99);
+    assert.equal(await page.locator('.context .notice').count(), 0);
+    library.updateSettings = async () => { throw new Error('Volume disk unavailable'); };
+    await page.keyboard.press('ArrowLeft');
+    await page.locator('.context .notice').waitFor();
+    assert.match(await page.locator('.context .notice').textContent(), /Volume disk unavailable/);
+    assert.equal(await slider().inputValue(), '98');
+    library.updateSettings = persist;
+    await page.getByRole('button', { name: 'Retry saving', exact: true }).click();
+    await page.locator('.context .notice').waitFor({ state: 'detached' });
+    assert.equal(library.snapshot().settings.volume, 98);
+    assert.deepEqual(await page.locator('.task').boundingBox(), bounds);
+  } finally {
+    release(); await session.settled(); await publish(); await paint(); session.close();
+  }
 });

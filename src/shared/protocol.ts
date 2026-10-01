@@ -57,7 +57,7 @@ export interface LibraryView {
   alignment?: Alignment;
   status?: string;
   error?: string;
-  saveError?: string;
+  saveError?: string; // Failed writes only; unsaved counts also include pending writes.
   unsavedAlignments?: number;
   unsavedPreferences?: number;
   folders: string[];

@@ -60,6 +60,39 @@ async function selectFile(path) {
   await app.evaluate(({ dialog }, selected) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] }); }, path);
 }
 async function close() { await app.close(); app = undefined; }
+async function checkVolumeLayout(window) {
+  await window.getByRole('button', { name: 'Settings', exact: true }).click();
+  await window.evaluate(() => {
+    window.volumeLayout = { frames: [], raf: 0 };
+    const sample = () => {
+      window.volumeLayout.frames.push({ top: document.querySelector('.task').getBoundingClientRect().top, warning: !!document.querySelector('.context .notice') });
+      window.volumeLayout.raf = requestAnimationFrame(sample);
+    };
+    sample();
+  });
+  try {
+    const slider = window.getByRole('dialog').getByRole('slider', { name: 'Comms volume' });
+    const box = await slider.boundingBox();
+    await window.mouse.move(box.x + box.width - 8, box.y + box.height / 2);
+    await window.mouse.down();
+    try {
+      for (let i = 0; i < 60; i++) {
+        await window.mouse.move(box.x + 8 + (box.width - 16) * (0.5 + 0.45 * Math.cos(i / 10)), box.y + box.height / 2);
+        await delay(12);
+      }
+    } finally { await window.mouse.up(); }
+    const volume = Number(await slider.inputValue());
+    await waitState(window, state => state.library?.volume === volume && state.library.unsavedPreferences === 0);
+    const frames = await window.evaluate(() => window.volumeLayout.frames);
+    assert(frames.length > 1);
+    assert(frames.every(frame => !frame.warning && frame.top === frames[0].top), 'Dragging volume must not flash a save warning or shift the page');
+    assert.equal(JSON.parse(await readFile(join(profile, 'library.json'), 'utf8')).settings.volume, volume);
+    console.log(`Real Electron volume: ${frames.length} painted frames with no save warning or layout shift; final volume persisted.`);
+  } finally {
+    await window.evaluate(() => { cancelAnimationFrame(window.volumeLayout.raf); delete window.volumeLayout; });
+    await window.getByRole('button', { name: 'Close settings', exact: true }).click();
+  }
+}
 async function checkTraceExport(window) {
   const selection = (await window.evaluate(() => window.review.snapshot())).library;
   await window.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -241,6 +274,7 @@ try {
   await waitState(window, state => state.paused);
   await window.evaluate(() => window.review.command({ type: 'volume', volume: 99 }));
   assert.equal(await window.getByRole('button', { name: 'Start listening', exact: true }).count(), 0);
+  await checkVolumeLayout(window);
   await checkTraceExport(window);
   await checkOutputRecovery(window);
   await checkPowerRecovery(window);
@@ -251,9 +285,8 @@ try {
   await rename(backupPath, heldBackup); await mkdir(backupPath);
   const failure = await window.evaluate(async () => { try { await window.review.command({ type: 'align', offsetSeconds: 4 }); return ''; } catch (error) { return String(error); } });
   assert.ok(failure); await waitState(window, state => state.library?.unsavedAlignments === 1 && state.offsetSeconds === 4);
-  const volumeFailure = await window.evaluate(async () => { try { await window.review.command({ type: 'volume', volume: 37 }); return ''; } catch (error) { return String(error); } });
-  assert.ok(volumeFailure);
-  await waitState(window, state => state.library?.unsavedPreferences === 1 && state.library.volume === 37);
+  await window.evaluate(() => window.review.command({ type: 'volume', volume: 37 }));
+  await waitState(window, state => state.library?.unsavedPreferences === 1 && state.library.volume === 37 && state.library.saveError?.includes('Volume'));
   await app.evaluate(({ BrowserWindow, dialog }) => {
     globalThis.exitDialogOptions = undefined;
     dialog.showMessageBox = async (...args) => {

@@ -16,11 +16,12 @@ export class PreferenceEdits {
   constructor(private readonly library: ReviewLibrary) {}
   get count(): number { return this.edits.size; }
   message(): string | undefined {
-    const edit = this.edits.values().next().value as Edit | undefined;
+    const failed = [...this.edits].filter(edit => edit.error !== undefined);
+    const edit = failed[0];
     if (!edit) return;
     const label = edit.kind === 'setting' ? { volume: 'Volume', mediaFolders: 'Media folders', selectedInstallation: 'League installation' }[edit.key]
       : `${basename(edit.media.path)} · ${edit.kind === 'clock' ? 'clock region' : 'selected audio track'}`;
-    return `${this.count} unsaved preference${this.count === 1 ? '' : 's'}. ${label}: ${edit.error ?? 'Saving…'}`;
+    return `${failed.length} unsaved preference${failed.length === 1 ? '' : 's'}. ${label}: ${edit.error}`;
   }
   settings(): Settings {
     const settings = this.library.snapshot().settings;
@@ -29,6 +30,13 @@ export class PreferenceEdits {
   }
   setting<K extends keyof Settings>(key: K, value: Settings[K]): Promise<void> {
     return this.save({ kind: 'setting', key, value: structuredClone(value), revision: this.library.nextAlignmentRevision() });
+  }
+  stageVolume(volume: number): void {
+    this.retain({ kind: 'setting', key: 'volume', value: volume, revision: this.library.nextAlignmentRevision() });
+  }
+  async flushVolume(): Promise<void> {
+    const edit = [...this.edits].find(edit => edit.kind === 'setting' && edit.key === 'volume');
+    if (edit) await this.commit(edit);
   }
   clockSelection(media: MediaReference, saved?: ClockSelection): ClockSelection | undefined {
     let latest = saved;
@@ -60,14 +68,17 @@ export class PreferenceEdits {
     if (errors.length) throw new AggregateError(errors, this.message());
   }
   private async save(edit: Edit): Promise<void> {
+    if (this.retain(edit)) await this.commit(edit);
+  }
+  private retain(edit: Edit): boolean {
     const matches = [...this.edits].filter(previous =>
       (previous.kind === 'setting' && edit.kind === 'setting' && previous.key === edit.key)
       || (previous.kind === 'track' && edit.kind === 'track' && sameMedia(previous.media, edit.media))
       || (previous.kind === 'clock' && edit.kind === 'clock' && sameMedia(previous.media, edit.media)));
-    if (matches.some(previous => previous.revision > edit.revision)) return;
+    if (matches.some(previous => previous.revision > edit.revision)) return false;
     for (const previous of matches) this.edits.delete(previous);
     this.edits.add(edit);
-    await this.commit(edit);
+    return true;
   }
   private async commit(edit: Edit): Promise<void> {
     if (!this.edits.has(edit)) return;

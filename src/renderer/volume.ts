@@ -7,7 +7,7 @@ export function useVolume(savedVolume: number, send: DesktopInterface['command']
   const changeVolume = async (volume: number) => {
     const edit = ++revision.current;
     // Both sliders share immediate input feedback. Clock snapshots and replies
-    // to older edits must not restore a stale value while the latest edit saves.
+    // to older edits must not restore a stale value before playback acknowledges it.
     setDraft(volume);
     reportError('');
     try { await send({ type: 'volume', volume }); }
