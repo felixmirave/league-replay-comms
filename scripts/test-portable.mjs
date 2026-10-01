@@ -90,22 +90,22 @@ try {
   const ffmpeg = join(identity.resources, 'bin/win32-x64/ffmpeg.exe');
   assert.equal(await digestFile(ffmpeg), verified.payloadFiles['resources/bin/win32-x64/ffmpeg.exe']);
   let video = join(folder, 'clock and two comms tracks.mkv');
-  await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-i', resolve('tests/fixtures/ocr/clock-video.mkv'), '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-map', '0:v', '-map', '1:a', '-map', '1:a', '-t', '130', '-c:v', 'copy', '-c:a', 'pcm_s16le', video], { windowsHide: true, timeout: 60_000, maxBuffer: 1024 * 1024 });
+  await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-i', resolve('tests/fixtures/ocr/clock-video.mkv'), '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-map', '0:v', '-map', '1:a', '-map', '1:a', '-t', '4', '-vf', 'scale=68:26:flags=lanczos,pad=1920:1080:1852:0:color=0x111827', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-threads', '1', '-c:a', 'pcm_s16le', video], { windowsHide: true, timeout: 60_000, maxBuffer: 1024 * 1024 });
   await window.evaluate(() => window.review.command({ type: 'workflow', action: 'change-recording' }));
   await selectFile(window, video, 'Choose recording');
   const opened = await waitState(window, state => state.media?.name === basename(video) && !!state.library?.recording?.hash);
   assert.equal(opened.media.tracks.length, 2);
   await window.evaluate(async () => {
     await window.review.command({ type: 'cancel-clock' });
-    await window.review.command({ type: 'preview-crop', crop: { x: 0, y: 0, width: 1, height: 1 } });
     await window.review.command({ type: 'align', offsetSeconds: 3 });
     await window.review.command({ type: 'analyze-clock' });
   });
-  const clock = await waitState(window, state => state.library?.clock?.status === 'candidate' || state.library?.clock?.status === 'needs-attention', 180_000);
-  assert.equal(clock.library.clock.status, 'candidate', clock.library.clock.message);
+  const clock = await waitState(window, state => state.library?.clock?.status === 'accepted' || state.library?.clock?.status === 'needs-attention', 180_000);
+  assert.equal(clock.library.clock.status, 'accepted', clock.library.clock.message);
   assert(Math.abs(clock.library.clock.offsetSeconds + 100) < 0.06);
-  assert.equal(clock.offsetSeconds, 3, 'Uncalibrated OCR replaced the manual alignment');
-  report.checks.push('packaged-decoder-and-offline-ocr-resources', 'manual-alignment-precedence');
+  assert(Math.abs(clock.offsetSeconds + 100) < 0.06, 'Explicit reanalysis must apply the clock midpoint');
+  assert.equal(clock.library.boundToRuntime, false, 'Automatic alignment must not start listening');
+  report.checks.push('packaged-decoder-and-offline-ocr-resources', 'automatic-midpoint-alignment');
   const track = opened.media.tracks[1].id;
   await window.evaluate(async id => {
     await window.review.command({ type: 'track', trackId: id });

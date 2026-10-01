@@ -1,11 +1,11 @@
 import { mkdtemp, rm, writeFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewSession, type PreviewSource } from '../src/main/preview-session';
 import { AnalysisCache } from '../src/library/analysis-cache';
-import type { PreviewDecoder } from '../src/analysis/decoder-client';
-import type { FrameRequest, PreviewFrame, WaveformChunk, WaveformRequest } from '../src/shared/analysis';
+import type { AnalysisDecoder } from '../src/analysis/decoder-client';
+import type { WaveformChunk, WaveformRequest } from '../src/shared/analysis';
 
 let folder: string;
 beforeEach(async () => { folder = await mkdtemp(join(tmpdir(), 'comms-previews-')); });
@@ -16,15 +16,13 @@ function source(video = false): PreviewSource {
     tracks: [{ id: 1, ffIndex: 0, title: 'Comms', selected: true }, { id: 2, ffIndex: 2, title: 'Microphone', selected: false }],
     probe: { formats: ['matroska'], streams: [{ type: 'audio', index: 0, codec: 'aac', sampleRate: 48000 }, { type: 'audio', index: 2, codec: 'aac', sampleRate: 48000 }, ...(video ? [{ type: 'video' as const, index: 1, codec: 'h264', startPtsSeconds: 5 }] : [])] } } };
 }
-const image = (positionSeconds: number): PreviewFrame => ({ kind: 'frame', ptsSeconds: positionSeconds + 5, positionSeconds, width: 100, height: 50, dataUrl: 'data:image/png;base64,AA==' });
-class Decoder implements PreviewDecoder {
+class Decoder implements AnalysisDecoder {
   waves: WaveformRequest[] = [];
-  frames: FrameRequest[] = [];
+  frame = vi.fn<AnalysisDecoder['frame']>().mockRejectedValue(new Error('Waveform preview must not decode video frames'));
   async waveform(request: WaveformRequest): Promise<WaveformChunk> {
     this.waves.push(request);
     return { kind: 'waveform', startSeconds: request.startSeconds, endSeconds: request.endSeconds, bucketSeconds: request.bucketSeconds, peaks: [[request.startSeconds, request.endSeconds, -0.5, 0.5]] };
   }
-  async frame(request: FrameRequest): Promise<PreviewFrame> { this.frames.push(request); return image(request.positionSeconds); }
 }
 
 describe('preview sessions and disposable caches', () => {
@@ -56,30 +54,27 @@ describe('preview sessions and disposable caches', () => {
     expect(decoder.waves).toHaveLength(9);
   });
 
-  it('ignores stale frame results after scrubbing and after recording replacement', async () => {
-    const pending = new Map<number, (value: PreviewFrame) => void>();
-    const decoder = new Decoder();
-    decoder.frame = request => new Promise(resolve => pending.set(request.positionSeconds, resolve));
-    const session = new PreviewSession(decoder, new AnalysisCache(folder), () => {});
-    session.select(source(true)); session.showFrame(1); session.showFrame(2);
-    pending.get(2)!(image(2)); pending.get(1)!(image(1)); pending.get(0)!(image(0)); await session.settled();
-    expect(session.snapshot().frame?.positionSeconds).toBe(2);
-    session.showFrame(3);
-    session.select({ ...source(), path: 'other.wav', hash: 'b'.repeat(64) });
-    pending.get(3)!(image(3)); await session.settled();
-    expect(session.snapshot().frame).toBeUndefined();
+  it('prepares only audio waveforms for video recordings, including track changes', async () => {
+    const decoder = new Decoder(), session = new PreviewSession(decoder, new AnalysisCache(folder), () => {});
+    const original = source(true);
+    session.select(original); await session.settled();
+    expect(session.snapshot().waveform?.complete).toBe(true);
+    session.select({ ...original, media: { ...original.media, selectedTrackId: 2 } }); await session.settled();
+    expect(decoder.frame).not.toHaveBeenCalled();
+    expect(decoder.waves.slice(-3).every(wave => wave.streamIndex === 2)).toBe(true);
   });
 
-  it('retains the chosen clock crop across audio-track changes and validates its bounds', async () => {
-    const session = new PreviewSession(new Decoder(), new AnalysisCache(folder), () => {});
-    const original = { ...source(true), hash };
-    session.select(original); await session.settled();
-    const crop = { x: 0.5, y: 0.05, width: 0.2, height: 0.1 };
-    session.setCrop(crop);
-    session.select({ ...original, media: { ...original.media, selectedTrackId: 2 } }); await session.settled();
-    expect(session.snapshot().crop).toEqual(crop);
-    expect(() => session.setCrop({ ...crop, width: 0.9 })).toThrow('outside');
-    session.clear(); expect(session.snapshot().crop).toBeUndefined();
+  it('ignores a late waveform from the previous recording', async () => {
+    let finish!: (value: WaveformChunk) => void;
+    const decoder = new Decoder(), wave = decoder.waveform.bind(decoder);
+    decoder.waveform = request => request.path === 'recording.mkv' ? new Promise(resolve => { finish = resolve; }) : wave(request);
+    const session = new PreviewSession(decoder, new AnalysisCache(folder), () => {});
+    session.select(source());
+    session.select({ ...source(), path: 'other.wav' });
+    finish({ kind: 'waveform', startSeconds: 0, endSeconds: 60, bucketSeconds: 1, peaks: [[0, 60, -1, 1]] });
+    await session.settled();
+    expect(session.snapshot().waveform?.complete).toBe(true);
+    expect(session.snapshot().waveform?.peaks.every(peak => peak[2] === -0.5)).toBe(true);
   });
 
   it('treats corrupt/future cache entries as misses and evicts only derived cache files', async () => {

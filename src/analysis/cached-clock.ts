@@ -63,11 +63,7 @@ export class CachedClockAnalysis implements VideoClockJobs {
   async flush(): Promise<void> { while (this.writes.size) await Promise.all([...this.writes]); await this.cache.flush(); }
   private save(request: VideoClockRequest & { hash: string }, evidence: CachedClockEvidence): void {
     // A disposable cache failure cannot invalidate the in-memory result or an offset.
-    const operation = Promise.resolve().then(async () => {
-      await this.cache.put(request, evidence);
-      // Automatic localization becomes a remembered concrete crop on next launch.
-      if (!request.crop) await this.cache.put({ ...request, crop: evidence.crop }, evidence);
-    }).catch(() => undefined).finally(() => this.writes.delete(operation));
+    const operation = Promise.resolve().then(() => this.cache.put(request, evidence)).catch(() => undefined).finally(() => this.writes.delete(operation));
     this.writes.add(operation);
   }
   private async checkSource(request: VideoClockRequest): Promise<void> {

@@ -32,12 +32,9 @@ const legacyPendingSchema = z.object({
 });
 export const pendingKey = (replayHash: string, trackKey: string): string => JSON.stringify([replayHash, trackKey]);
 const pendingEditSchema = z.object({ replayHash: digestSchema, trackKey: z.string(), alignment: alignmentSchema });
-const clockSelectionSchema = z.object({ videoStreamIndex: z.number().int().nonnegative(), crop: cropSchema.optional(), revision: z.number().int().nonnegative() });
-export type ClockSelection = z.infer<typeof clockSelectionSchema>;
 const pendingSchema = legacyPendingSchema.omit({ replayHash: true, trackKey: true, alignment: true }).extend({
   edits: z.record(z.string(), pendingEditSchema),
   preferences: z.record(digestSchema, z.object({ trackKey: z.string(), revision: z.number().int().nonnegative() })).default({}),
-  clockSelection: clockSelectionSchema.optional(),
 });
 export type PendingImport = z.infer<typeof pendingSchema>;
 const recordingSelectionSchema = z.object({ mediaHash: digestSchema, trackKey: z.string() });
@@ -46,7 +43,7 @@ const legacyReplaySchema = fileSchema.extend({ preferredAssociation: z.string().
 export const librarySchema = z.object({
   schemaVersion: z.literal(5), revision: z.number().int().nonnegative(),
   replays: z.record(digestSchema, fileSchema.extend({ preferredRecording: recordingSelectionSchema.optional(), preferenceRevision: z.number().int().nonnegative().default(0) })),
-  media: z.record(digestSchema, fileSchema.extend({ probe: z.object({ version: z.literal(1), data: probeSchema }).optional().catch(undefined), clockSelection: clockSelectionSchema.optional() })),
+  media: z.record(digestSchema, fileSchema.extend({ probe: z.object({ version: z.literal(1), data: probeSchema }).optional().catch(undefined) })),
   associations: z.record(z.string(), associationSchema),
   pendingImports: z.record(z.string(), pendingSchema),
   settings: z.object({ mediaFolders: z.array(z.string()), volume: z.number().min(0).max(100), selectedInstallation: z.string().optional() }),

@@ -12,7 +12,7 @@ import type { FrameRequest, WaveformRequest } from '../../src/shared/analysis';
 
 const run = promisify(execFile);
 const enabled = !!(process.env.COMMS_TEST_FFMPEG && process.env.COMMS_TEST_FFPROBE);
-describe.skipIf(!enabled)('real timestamped previews', () => {
+describe.skipIf(!enabled)('real clock frames and waveforms', () => {
   let folder: string, path: string, workerPath: string;
   let frame: FrameRequest, wave: WaveformRequest;
   beforeAll(async () => {
@@ -22,12 +22,12 @@ describe.skipIf(!enabled)('real timestamped previews', () => {
     await build({ entryPoints: [resolve('src/analysis/decoder-entry.ts')], outfile: workerPath, bundle: true, platform: 'node', format: 'cjs' });
     await run(process.env.COMMS_TEST_FFMPEG!, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=30:duration=3', '-itsoffset', '0.5', '-f', 'lavfi', '-i', 'aevalsrc=if(between(t\\,0.5\\,0.6)\\,0.8\\,0)|-if(between(t\\,0.5\\,0.6)\\,0.8\\,0):s=48000:d=2', '-map', '0:v', '-map', '1:a', '-vf', "select='if(lt(t,1.5),not(mod(n,2)),1)'", '-fps_mode', 'vfr', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'pcm_f32le', '-output_ts_offset', '5', path]);
     const version = await fileVersion(path);
-    frame = { kind: 'frame', path, version, streamIndex: 0, originSeconds: 5, positionSeconds: 1.11 };
+    frame = { kind: 'frame', path, version, streamIndex: 0, originSeconds: 5, positionSeconds: 1.11, crop: { x: 0.25, y: 0.25, width: 0.5, height: 0.25 } };
     wave = { kind: 'waveform', path, version, streamIndex: 1, originSeconds: 5, sampleRate: 48000, startSeconds: 0, endSeconds: 3, bucketSeconds: 0.02 };
   });
   afterAll(async () => { if (folder) await rm(folder, { recursive: true, force: true }); });
 
-  it('returns actual VFR frame PTS after a nonzero seek, with a usable image and normalized crop', async () => {
+  it('returns actual VFR frame PTS after a nonzero seek, with a bounded grayscale clock crop', async () => {
     const decoded = await new MediaDecoder(process.env.COMMS_TEST_FFMPEG!).decode(frame);
     expect(decoded.kind).toBe('frame');
     if (decoded.kind !== 'frame') throw new Error('Expected frame');
@@ -37,9 +37,12 @@ describe.skipIf(!enabled)('real timestamped previews', () => {
     expect(decoded.ptsSeconds).toBeCloseTo(actualNext, 5);
     expect(decoded.positionSeconds).toBeCloseTo(actualNext - 5, 5);
     expect(decoded.positionSeconds).not.toBe(frame.positionSeconds);
-    expect(decoded.dataUrl).toMatch(/^data:image\/png;base64,/);
-    const crop = await new MediaDecoder(process.env.COMMS_TEST_FFMPEG!).decode({ ...frame, crop: { x: 0.25, y: 0.25, width: 0.5, height: 0.25 } });
-    expect(crop.kind === 'frame' && crop.width / crop.height).toBeCloseTo(160 / 44, 1);
+    expect(decoded.width).toBeLessThanOrEqual(480);
+    expect(decoded.height).toBeLessThanOrEqual(120);
+    expect(decoded.width / decoded.height).toBeCloseTo(160 / 44, 1);
+    expect(Buffer.from(decoded.png.subarray(0, 8))).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    expect(decoded.png[25]).toBe(0); // PNG IHDR color type: grayscale.
+
   });
 
   it('keeps stereo peaks and their real timestamps without downmix cancellation or a reset to zero', async () => {
@@ -79,17 +82,17 @@ describe.skipIf(!enabled)('real timestamped previews', () => {
     await expect(decoding).rejects.toThrow();
   });
 
-  it('prioritizes interactive frames over queued background chunks and cancels obsolete queued work', async () => {
+  it('prioritizes clock frames over queued background chunks and cancels obsolete queued work', async () => {
     const queue = new DecoderQueue(workerPath, process.env.COMMS_TEST_FFMPEG!);
     const order: string[] = [];
     try {
       const first = queue.waveform(wave).then(() => { order.push('first'); });
       const later = queue.waveform(wave).then(() => { order.push('later'); });
-      const interactive = queue.frame(frame).then(() => { order.push('frame'); });
+      const clock = queue.frame(frame).then(result => { expect(result.png).toBeInstanceOf(Uint8Array); order.push('frame'); });
       const abort = new AbortController();
       const obsolete = queue.waveform(wave, abort.signal); abort.abort();
       await expect(obsolete).rejects.toThrow('cancelled');
-      await Promise.all([first, later, interactive]);
+      await Promise.all([first, later, clock]);
       expect(order).toEqual(['first', 'frame', 'later']);
     } finally { await queue.close(); }
   });

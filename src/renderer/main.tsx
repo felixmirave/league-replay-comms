@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import { initialSnapshot, type DesktopInterface, type ProbeSnapshot, type UserCommand } from '../shared/protocol';
 import type { PreviewView } from '../shared/analysis';
 import type { WorkflowState } from '../shared/workflow';
-import { RecordingPreview } from './preview';
 import { SetupPanel } from './setup';
 import { TimingEditor, time } from './timing-editor';
 import { useVolume } from './volume';
@@ -16,7 +15,7 @@ const titles: Record<WorkflowState, string> = {
   'setup.enable': 'Allow replay connection', 'setup.permission': 'Windows permission is needed', 'setup.editing': 'Updating replay connection…', 'setup.repair': 'Check League’s configuration',
   'replay.wait': 'Open a replay in League', 'recording.choose': 'Choose your recording', 'recording.opening': 'Opening recording…', 'recording.identifying': 'Restoring saved timing…',
   'recording.locate': 'Find your saved recording', 'recording.track': 'Which track has the comms?', 'recording.timing': 'Reading audio timing…', 'recording.timing-error': 'This track’s timing is unavailable',
-  'alignment.analyzing': 'Finding the game clock…', 'alignment.crop': 'Show us the game clock', 'alignment.manual': 'Match one moment',
+  'alignment.analyzing': 'Finding the game clock…', 'alignment.manual': 'Match one moment',
   ready: 'Ready to listen', 'ready.offline': 'Your timing is ready', listening: 'Following League', 'audio.error': 'Audio could not start', 'application.error': 'The application could not start',
 };
 const descriptions: Record<WorkflowState, string> = {
@@ -31,7 +30,7 @@ const descriptions: Record<WorkflowState, string> = {
   'recording.opening': 'Reading the file and restoring any saved track and timing.', 'recording.identifying': 'Checking whether this recording already has saved timing. You can start aligning manually while this finishes.', 'recording.locate': 'Locate the original recording to restore its timing, even if the file was renamed.',
   'recording.track': 'Preview a track, then choose the one you want to hear.', 'recording.timing': 'Determining when the audio starts and ends. Your alignment is kept.',
   'recording.timing-error': 'Choose another track or recording. You can still preview this track and adjust its timing.',
-  'alignment.analyzing': 'Reading the timer in the video to line up the comms.', 'alignment.crop': 'Select the timer’s area in a clear recording frame, or align manually.',
+  'alignment.analyzing': 'Reading the timer in the video to line up the comms.',
   'alignment.manual': 'Find the same moment in League and in your recording. Following is paused while you adjust timing.',
   ready: 'Comms will follow playback, pauses, speed changes, and jumps in League.',
   'ready.offline': 'Your recording and timing are saved locally when identification finishes. Connect to League before listening.',
@@ -81,7 +80,7 @@ function App() {
       'setup.folder': { type: 'setup-choose-folder' }, 'setup.installation': { type: 'setup-select', root: selectedRoot },
       'setup.enable': { type: 'setup-enable', path: config?.path ?? '' }, 'setup.permission': { type: 'setup-elevate' }, 'setup.repair': { type: 'setup-refresh' },
       'recording.choose': { type: 'open' }, 'recording.locate': { type: 'locate-media' }, 'recording.track': { type: 'track', trackId: track ?? snapshot.media?.selectedTrackId ?? 1 },
-      'recording.timing-error': { type: 'workflow', action: (snapshot.media?.tracks.length ?? 0) > 1 ? 'change-track' : 'change-recording' }, 'alignment.crop': { type: 'analyze-clock' }, ready: { type: 'follow' },
+      'recording.timing-error': { type: 'workflow', action: (snapshot.media?.tracks.length ?? 0) > 1 ? 'change-track' : 'change-recording' }, ready: { type: 'follow' },
       'ready.offline': { type: 'workflow', action: 'review' }, listening: { type: 'stop' }, 'audio.error': { type: 'retry' },
     };
     if (state === 'setup.installation' && !selectedRoot) { setError('Choose the installation you use.'); return; }
@@ -116,14 +115,13 @@ function App() {
       {state === 'recording.choose' && !!library?.recordings.length && <div className="recents"><h2>Recent recordings</h2>{library.recordings.slice(0, 8).map(file => <button className="recent" key={file.id} disabled={busy} title={file.path} onClick={() => void command({ type: 'select-recording', id: file.id })}><span>{file.name}</span><small>{file.pending ? 'Identification unfinished' : 'Restore saved track and timing'}</small></button>)}</div>}
       {state === 'recording.track' && <fieldset><legend>Audio tracks</legend>{snapshot.media?.tracks.map(item => <div className="track-choice" key={item.id}><label><input type="radio" name="track" checked={track === item.id} onChange={() => setTrack(item.id)} />{item.title}{item.language ? ` · ${item.language}` : ''}</label><button disabled={busy} onClick={() => void command({ type: 'preview-track', trackId: item.id })}>Preview {item.title}</button></div>)}{!snapshot.paused && <button onClick={() => void command({ type: 'preview', paused: true })}>Pause preview</button>}</fieldset>}
       {(state === 'alignment.analyzing' || state === 'recording.identifying') && <><p className="progress" role="status">{library?.clock?.message ?? 'Identifying the recording before restoring or reading its clock…'}</p>{library?.clock && <p className="muted">{library.clock.framesRead} frames checked</p>}<button className="text-button" onClick={() => void command({ type: 'workflow', action: 'edit' })}>Align manually</button></>}
-      {state === 'alignment.crop' && snapshot.media && <><p className="notice">{library?.clock?.message}</p><RecordingPreview mode="crop" preview={preview} media={snapshot.media} position={snapshot.positionSeconds} disabled={busy} command={command} useFrame={() => {}} /></>}
       {editing && snapshot.media && <TimingEditor key={`${library?.mediaGeneration}:${flow?.editorKey}`} snapshot={snapshot} preview={preview} busy={busy} command={command} />}
       {state === 'ready' && <div className="notice"><strong>{snapshot.media?.name}</strong><p>{library?.alignment?.source === 'video-clock' ? 'Timing aligned from the recorded clock.' : 'Your timing is ready.'}</p></div>}
       {state === 'listening' && <><div className="replay-clock" aria-label="Replay time">{time(snapshot.replay?.timeSeconds)} <small>{snapshot.replay?.speed ?? 1}×</small></div>{snapshot.sync.state === 'outside-recording' && <p>This replay position is outside the recorded audio. Comms will resume when the replay returns to the recording.</p>}{snapshot.sync.state === 'unsupported-speed' && <p>Change the replay speed in League. Comms are silent until playback is supported.</p>}<label className="volume">Comms volume<input type="range" min="0" max="100" value={volume} onChange={event => void changeVolume(Number(event.target.value))} /></label></>}
       {!editing && flow?.primary && <div className="actions"><button className="primary" disabled={busy} onClick={primary}>{flow.primary}</button></div>}
       <div className="secondary">
         {(setupState || state === 'replay.wait') && <button className="text-button" onClick={() => void command({ type: 'workflow', action: 'prepare' })}>Prepare a recording without League</button>}
-        {['ready', 'ready.offline', 'listening', 'recording.timing', 'recording.timing-error', 'alignment.crop'].includes(state) && <button className="text-button" onClick={() => void command({ type: 'workflow', action: 'edit' })}>{state === 'alignment.crop' ? 'Align manually' : 'Adjust timing'}</button>}
+        {['ready', 'ready.offline', 'listening', 'recording.timing', 'recording.timing-error'].includes(state) && <button className="text-button" onClick={() => void command({ type: 'workflow', action: 'edit' })}>Adjust timing</button>}
         {(library?.recordingReady || state === 'recording.locate') && state !== 'recording.choose' && state !== 'recording.opening' && <button className="text-button" onClick={() => void command({ type: 'workflow', action: 'change-recording' })}>Change recording</button>}
         {flow?.canReturn && <button className="text-button" onClick={() => void command({ type: 'workflow', action: 'review' })}>Back to recording</button>}
       </div>

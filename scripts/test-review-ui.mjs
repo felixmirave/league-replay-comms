@@ -45,7 +45,7 @@ async function waitPreview(window, predicate) {
     if (predicate(preview)) return preview;
     await delay(50);
   } while (Date.now() < deadline);
-  throw new Error(`Preview did not converge: ${JSON.stringify({ ...preview, waveform: preview.waveform && { ...preview.waveform, peaks: preview.waveform.peaks.length }, frame: preview.frame && { ...preview.frame, dataUrl: '<image>' } })}`);
+  throw new Error(`Preview did not converge: ${JSON.stringify({ ...preview, waveform: preview.waveform && { ...preview.waveform, peaks: preview.waveform.peaks.length } })}`);
 }
 async function launch() {
   app = await electron.launch({ executablePath, args: ['.', ...(process.env.COMMS_TEST_NO_SANDBOX === '1' ? ['--no-sandbox'] : [])], env: { ...process.env, COMMS_TEST_USER_DATA: profile, COMMS_TEST_NULL_AUDIO: '1' } });
@@ -357,19 +357,21 @@ try {
     const inspected = await waitState(window, state => state.media?.name === basename(video) && state.media.tracks[0]?.range?.evidence === 'packet-scan' && !!state.library?.recording?.hash && state.library.timingAnalysis !== 'running');
     assert.ok(inspected.media.probe.streams.some(stream => stream.type === 'video'));
     await window.getByRole('button', { name: 'Use this track', exact: true }).click();
-    await window.getByRole('button', { name: 'Align manually', exact: true }).click();
+    await waitState(window, state => state.workflow?.state === 'alignment.manual' && state.library?.clock?.status === 'needs-attention', 180000);
+    assert.equal(await window.getByRole('heading', { name: 'Match one moment', exact: true }).count(), 1);
+    assert.equal(await window.getByText('Automatic clock detection failed.', { exact: false }).count(), 1);
+    assert.equal(await window.locator('.video-preview, .frame-stage, .crop-surface, .crop-inputs').count(), 0);
     const target = inspected.media.tracks[0].range.startSeconds + 0.5;
     await window.getByLabel('Go to recording time', { exact: true }).fill(String(target));
     await window.getByRole('button', { name: 'Go', exact: true }).click();
     await waitState(window, state => Math.abs(state.positionSeconds - target) < 0.025);
     const cached = JSON.parse(await readFile(join(profile, 'library.json'), 'utf8')).media[inspected.library.recording.hash];
     assert.ok(cached.probe.data.streams.find(stream => stream.type === 'audio').packetRange);
-    const still = await waitPreview(window, preview => !!preview.frame && !preview.frameBusy && preview.waveform?.complete);
-    assert.ok(still.frame.positionSeconds >= target && still.frame.positionSeconds - target < 0.1);
-    await window.getByRole('button', { name: 'Use frame as recording timestamp', exact: true }).click();
+    await waitPreview(window, preview => preview.waveform?.complete);
+    await window.getByRole('button', { name: 'Use recording playhead', exact: true }).click();
     assert.match(await window.getByLabel('Recording time', { exact: true }).inputValue(), /^0:/);
     console.log('Real Electron video import: background packet bounds, canonical seek, and cached timing passed.');
-    console.log('Real Electron previews: timestamped waveform, video still, and manual timestamp selection passed.');
+    console.log('Real Electron fallback: failed clock detection opens manual timing with audio waveform and playhead selection, without video frames or crop controls.');
     const secondTrack = inspected.media.tracks[1].id;
     await window.evaluate(async id => { await window.review.command({ type: 'track', trackId: id }); await window.review.command({ type: 'align', offsetSeconds: 2.5 }); }, secondTrack);
     await checkOutputRecovery(window);
@@ -396,22 +398,11 @@ try {
     console.log('Real Electron power recovery refuses replaced recording bytes, retains the alignment, and permits explicit reopening after failure.');
     if (existsSync('resources/ocr/verified.json')) {
       const clockVideo = join(folder, 'clock with comms.mkv');
-      await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-i', resolve('tests/fixtures/ocr/clock-video.mkv'), '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-map', '0:v', '-map', '1:a', '-t', '130', '-c:v', 'copy', '-c:a', 'pcm_s16le', clockVideo]);
+      await run(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-i', resolve('tests/fixtures/ocr/clock-video.mkv'), '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-map', '0:v', '-map', '1:a', '-t', '4', '-vf', 'scale=68:26:flags=lanczos,pad=1920:1080:1852:0:color=0x111827', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-threads', '1', '-c:a', 'pcm_s16le', clockVideo]);
       await window.getByRole('button', { name: 'Change recording', exact: true }).click();
       await selectFile(clockVideo);
       await window.getByRole('button', { name: 'Choose recording', exact: true }).click();
-      await waitState(window, state => state.media?.name === basename(clockVideo) && !!state.library?.recording?.hash && state.library.clock?.status === 'needs-attention', 180000);
-      await waitPreview(window, preview => !!preview.frame && !preview.frameBusy);
-      const selector = window.getByLabel('Clock region selector', { exact: true });
-      await selector.scrollIntoViewIfNeeded();
-      const clockBox = await selector.boundingBox();
-      await window.mouse.move(clockBox.x + clockBox.width * 0.01, clockBox.y + clockBox.height * 0.01);
-      await window.mouse.down();
-      await window.mouse.move(clockBox.x + clockBox.width * 0.99, clockBox.y + clockBox.height * 0.99, { steps: 4 });
-      await window.mouse.up();
-      await waitPreview(window, preview => preview.crop?.width > 0.95);
-      await window.getByRole('button', { name: 'Read this clock', exact: true }).click();
-      await waitState(window, state => state.library?.clock?.status === 'running');
+      await waitState(window, state => state.media?.name === basename(clockVideo) && state.library?.clock?.status === 'running');
       await window.getByRole('button', { name: 'Align manually', exact: true }).click();
       await window.getByLabel('Game time at this moment', { exact: true }).fill('0:02');
       await window.getByLabel('Recording time', { exact: true }).fill('0:05');
@@ -441,10 +432,9 @@ try {
 
       assert.ok(Math.abs(reused.library.clock.offsetSeconds + 100) < 0.06);
       assert.ok(Math.abs(reused.offsetSeconds + 100) < 0.06, 'Reanalysis must preserve the same midpoint offset');
-      const rememberedCrop = await waitPreview(window, preview => preview.crop?.width > 0.95);
-      assert.ok(rememberedCrop.crop.height > 0.95);
-      console.log('Real Electron clock reading: offline OCR, crop retry, cancellation by manual edit, automatic midpoint application, and explicit Start requirement passed.');
-      console.log('Real Electron recording recovery: saved crop and automatic timing restored after restart and Unicode rename; reanalysis applies the midpoint.');
+      assert.equal(await window.locator('.video-preview, .frame-stage, .crop-surface, .crop-inputs').count(), 0);
+      console.log('Real Electron clock reading: top-right detection, offline OCR, cancellation by manual edit, automatic midpoint application, and explicit Start requirement passed.');
+      console.log('Real Electron recording recovery: automatic timing restored after restart and Unicode rename; reanalysis applies the midpoint.');
     }
   }
   assert.deepEqual(errors, []);

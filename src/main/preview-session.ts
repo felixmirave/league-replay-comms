@@ -1,50 +1,38 @@
-import type { PreviewDecoder } from '../analysis/decoder-client';
+import type { AnalysisDecoder } from '../analysis/decoder-client';
 import { AnalysisCache, type WaveformCacheKey } from '../library/analysis-cache';
-import { sameFileVersion, type FileVersion } from '../library/model';
+import type { FileVersion } from '../library/model';
 import type { OpenMedia } from '../shared/protocol';
-import { cropSchema, type Crop, type PreviewView, type WaveformChunk } from '../shared/analysis';
+import type { PreviewView, WaveformChunk } from '../shared/analysis';
 
 export interface PreviewSource { path: string; version: FileVersion; hash?: string; media: OpenMedia }
 export interface ReviewPreview {
   select(source: PreviewSource): void;
   identify(hash: string): void;
   updateMedia(media: OpenMedia): void;
-  showFrame(positionSeconds: number): void;
   clear(): void;
-  setCrop?(crop?: Crop): void;
-  selectVideo?(index: number): void;
 }
 
 /** Keeps large preview payloads out of the 20 Hz playback status channel. */
 export class PreviewSession implements ReviewPreview {
   private view: PreviewView = { revision: 0, mediaGeneration: 0 };
   private source?: PreviewSource;
-  private frameAbort?: AbortController;
   private waveformAbort?: AbortController;
-  private frameSequence = 0;
   private waveformSequence = 0;
   private jobs = new Set<Promise<void>>();
   private completedWaveform?: { key: Omit<WaveformCacheKey, 'hash'>; value: WaveformChunk };
   private closed = false;
 
-  constructor(private readonly decoder: PreviewDecoder, private readonly cache: AnalysisCache, private readonly changed: () => void) {}
+  constructor(private readonly decoder: Pick<AnalysisDecoder, 'waveform'>, private readonly cache: AnalysisCache, private readonly changed: () => void) {}
   snapshot(): PreviewView { return structuredClone(this.view); }
   async settled(): Promise<void> { while (this.jobs.size) await Promise.all([...this.jobs]); await this.cache.flush(); }
-  close(): void { this.closed = true; this.frameAbort?.abort(); this.waveformAbort?.abort(); }
+  close(): void { this.closed = true; this.waveformAbort?.abort(); }
   clear(): void {
-    this.frameAbort?.abort(); this.waveformAbort?.abort(); this.source = undefined; this.completedWaveform = undefined;
+    this.waveformAbort?.abort(); this.source = undefined; this.completedWaveform = undefined;
     this.view = { revision: this.view.revision, mediaGeneration: this.view.mediaGeneration + 1 }; this.publish();
   }
   select(source: PreviewSource): void {
-    const same = this.source && ((source.hash && source.hash === this.source.hash) || (source.path === this.source.path && sameFileVersion(source.version, this.source.version)));
-    const frame = same ? this.view.frame : undefined, crop = same ? this.view.crop : undefined, selectedVideo = same ? this.view.videoStreamIndex : undefined;
     this.clear(); this.source = structuredClone(source);
-    this.view.frame = frame; this.view.crop = crop;
-    const videos = source.media.probe?.streams.filter(stream => stream.type === 'video') ?? [];
-    this.view.videoStreamIndex = videos.find(stream => stream.index === selectedVideo)?.index ?? videos[0]?.index;
     this.waveformWindow(0, source.media.durationSeconds);
-    if (this.view.videoStreamIndex !== undefined && !frame) this.showFrame(Math.max(0, (videos[0]?.startPtsSeconds ?? source.media.originSeconds ?? 0) - (source.media.originSeconds ?? 0)));
-    this.publish();
   }
   identify(hash: string): void {
     if (!this.source) return;
@@ -56,37 +44,6 @@ export class PreviewSession implements ReviewPreview {
     const changedDuration = this.source.media.durationSeconds !== media.durationSeconds;
     this.source.media = structuredClone(media);
     if (changedDuration && this.view.waveform?.startSeconds === 0) this.waveformWindow(0, media.durationSeconds);
-  }
-  selectVideo(index: number): void {
-    if (!this.source?.media.probe?.streams.some(stream => stream.type === 'video' && stream.index === index)) throw new Error('Unknown video stream');
-    if (this.view.videoStreamIndex === index) return;
-    this.view.videoStreamIndex = index; this.view.crop = undefined; this.view.frame = undefined;
-    this.showFrame(0);
-  }
-  setCrop(crop?: Crop): void {
-    if (crop) cropSchema.parse(crop);
-    this.view.crop = crop; this.publish();
-  }
-  showFrame(positionSeconds: number): void {
-    const source = this.source, streamIndex = this.view.videoStreamIndex;
-    if (!source || streamIndex === undefined) return;
-    if (!Number.isFinite(positionSeconds) || positionSeconds < 0 || positionSeconds >= source.media.durationSeconds) throw new Error('Frame position is outside the recording');
-    if (source.media.originSeconds === undefined) { this.view.frameError = 'The recording timestamp origin is unavailable'; this.publish(); return; }
-    this.frameAbort?.abort(); const abort = this.frameAbort = new AbortController();
-    const generation = this.view.mediaGeneration, sequence = ++this.frameSequence;
-    this.view.frameBusy = true; this.view.frameError = undefined; this.publish();
-    this.background((async () => {
-      try {
-        const frame = await this.decoder.frame({ kind: 'frame', path: source.path, version: source.version, streamIndex, originSeconds: source.media.originSeconds!, positionSeconds }, abort.signal);
-        if (this.closed || abort.signal.aborted || generation !== this.view.mediaGeneration || sequence !== this.frameSequence) return;
-        this.view.frame = frame;
-      } catch (error) {
-        if (this.closed || abort.signal.aborted || generation !== this.view.mediaGeneration || sequence !== this.frameSequence) return;
-        this.view.frameError = error instanceof Error ? error.message : String(error);
-      } finally {
-        if (!this.closed && generation === this.view.mediaGeneration && sequence === this.frameSequence) { this.view.frameBusy = false; this.publish(); }
-      }
-    })());
   }
   waveformWindow(startSeconds: number, endSeconds: number): void {
     const source = this.source;

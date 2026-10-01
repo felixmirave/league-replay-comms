@@ -7,9 +7,9 @@ import { fitClock, type ClockReading } from '../src/analysis/clock-fit';
 import type { VideoClockJobs, VideoClockRequest, VideoClockResult } from '../src/analysis/video-clock';
 import { ClockCache } from '../src/library/clock-cache';
 import { identifyFile } from '../src/library/identity';
+import { gameClockCrop as crop } from '../src/shared/geometry';
 
 let folder: string, request: VideoClockRequest;
-const crop = { x: 0.9, y: 0, width: 0.1, height: 0.05 };
 const observations: ClockReading[] = [
   { mediaSeconds: 103.254, clockSeconds: 99, confidence: 90 },
   { mediaSeconds: 103.287, clockSeconds: 100, confidence: 90 },
@@ -18,7 +18,7 @@ class Analyzer implements VideoClockJobs {
   calls: VideoClockRequest[] = [];
   async analyze(request: VideoClockRequest): Promise<VideoClockResult> {
     this.calls.push(request);
-    return { crop: request.crop ?? crop, fit: fitClock(observations), readings: observations, framesRead: observations.length };
+    return { crop, fit: fitClock(observations), readings: observations, framesRead: observations.length };
   }
 }
 beforeEach(async () => {
@@ -31,25 +31,26 @@ afterEach(async () => { await rm(folder, { recursive: true, force: true }); });
 const cache = (runtime = 'runtime-a') => new ClockCache(join(folder, 'cache'), runtime);
 
 describe('clock cache and identity promotion', () => {
-  it('reuses a localized clock after rename, including its remembered crop and midpoint', async () => {
+  it('reuses a localized clock after rename, with one cached entry and the same midpoint', async () => {
     const analyzer = new Analyzer(), first = new CachedClockAnalysis(analyzer, cache());
     await first.analyze(request); await first.flush();
+    expect(await readdir(join(folder, 'cache'))).toHaveLength(1);
     const renamed = join(folder, 'renamed café.mkv'); await rename(request.path, renamed);
     const identity = await identifyFile(renamed);
     const next = new CachedClockAnalysis(analyzer, cache());
-    const restored = await next.analyze({ ...request, path: renamed, version: identity.version, crop });
+    const restored = await next.analyze({ ...request, path: renamed, version: identity.version });
     expect(restored.fromCache).toBe(true); expect(restored.fit.status).toBe('accepted');
     if (restored.fit.status === 'accepted') expect(restored.fit.offsetSeconds).toBeCloseTo(3.2705);
     expect(analyzer.calls).toHaveLength(1);
   });
-  it('isolates stream, timeline origin, window, crop and runtime and honors explicit re-runs', async () => {
+  it('isolates stream, timeline origin, window and runtime and honors explicit re-runs', async () => {
     const analyzer = new Analyzer(), service = new CachedClockAnalysis(analyzer, cache());
     await service.analyze(request); await service.flush();
-    for (const change of [{ streamIndex: 1 }, { originSeconds: 5 }, { endSeconds: 950 }, { crop: { ...crop, y: 0.01 } }, { force: true }]) await service.analyze({ ...request, ...change });
+    for (const change of [{ streamIndex: 1 }, { originSeconds: 5 }, { endSeconds: 950 }, { force: true }]) await service.analyze({ ...request, ...change });
     await service.flush();
     const otherRuntime = new CachedClockAnalysis(analyzer, cache('runtime-b'));
     await otherRuntime.analyze(request); await otherRuntime.flush();
-    expect(analyzer.calls).toHaveLength(7);
+    expect(analyzer.calls).toHaveLength(6);
   });
   it.each(['before', 'after'])('promotes provisional evidence when identity finishes %s analysis', async when => {
     const analyzer = new Analyzer();
@@ -64,8 +65,21 @@ describe('clock cache and identity promotion', () => {
     if (when === 'after') await service.identify('pending-import', await identifyFile(request.path));
     await service.flush();
     const fresh = new Analyzer();
-    const restored = await new CachedClockAnalysis(fresh, cache()).analyze({ ...request, crop });
+    const restored = await new CachedClockAnalysis(fresh, cache()).analyze(request);
     expect(restored.fromCache).toBe(true); expect(fresh.calls).toHaveLength(0);
+  });
+  it('rejects cached evidence from a retired user-selected crop', async () => {
+    const service = new CachedClockAnalysis(new Analyzer(), cache());
+    await service.analyze(request); await service.flush();
+    const directory = join(folder, 'cache'), file = join(directory, (await readdir(directory))[0]!);
+    const raw = JSON.parse(await readFile(file, 'utf8'));
+    raw.value.crop = { x: 0, y: 0, width: 1, height: 1 };
+    await writeFile(file, JSON.stringify(raw));
+    const analyzer = new Analyzer(), fresh = new CachedClockAnalysis(analyzer, cache());
+    const result = await fresh.analyze(request); await fresh.flush();
+    expect(result.fromCache).toBeUndefined();
+    expect(analyzer.calls).toHaveLength(1);
+    expect(result.crop).toEqual(crop);
   });
   it('does not promote evidence for a different source version, and refuses a replaced source on lookup', async () => {
     const service = new CachedClockAnalysis(new Analyzer(), cache());
@@ -80,15 +94,15 @@ describe('clock cache and identity promotion', () => {
   });
   it('treats corrupt or mismatched cache descriptors as misses and keeps review usable on cache write failure', async () => {
     const analyzer = new Analyzer(), service = new CachedClockAnalysis(analyzer, cache());
-    await service.analyze({ ...request, crop }); await service.flush();
+    await service.analyze(request); await service.flush();
     const directory = join(folder, 'cache'), file = join(directory, (await readdir(directory))[0]!);
     const raw = JSON.parse(await readFile(file, 'utf8')); raw.key = 'another recording';
     await writeFile(file, JSON.stringify(raw));
-    expect((await service.analyze({ ...request, crop })).fromCache).toBeUndefined(); await service.flush();
+    expect((await service.analyze(request)).fromCache).toBeUndefined(); await service.flush();
     await writeFile(file, '{broken');
-    expect((await service.analyze({ ...request, crop })).fromCache).toBeUndefined(); await service.flush();
+    expect((await service.analyze(request)).fromCache).toBeUndefined(); await service.flush();
     await rm(directory, { recursive: true }); await writeFile(directory, 'not a directory');
-    const result = await service.analyze({ ...request, crop, force: true }); await service.flush();
+    const result = await service.analyze({ ...request, force: true }); await service.flush();
     expect(result.fit.status).toBe('accepted');
   });
   it('evicts only derived artifacts and never serves cancelled lookups', async () => {

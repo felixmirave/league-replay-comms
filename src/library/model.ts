@@ -16,14 +16,12 @@ export const alignmentSchema = z.object({
   clock: z.object({ crop: cropSchema, videoStreamIndex: z.number().int().nonnegative(), originSeconds: z.number().finite(), evidence: clockEvidenceSchema }).optional(),
 });
 export type Alignment = z.infer<typeof alignmentSchema>;
-const clockSelectionSchema = z.object({ videoStreamIndex: z.number().int().nonnegative(), crop: cropSchema.optional(), revision: z.number().int().nonnegative() });
-export type ClockSelection = z.infer<typeof clockSelectionSchema>;
 const trackPreferenceSchema = z.object({ trackKey: z.string(), revision: z.number().int().nonnegative() });
 export type TrackPreference = z.infer<typeof trackPreferenceSchema>;
 const pendingSchema = z.object({
   id: z.string(), path: z.string(), version: fileVersionSchema, createdAt: z.string(),
   edits: z.record(z.string(), alignmentSchema), conflicts: z.record(z.string(), z.array(alignmentSchema)).default({}),
-  preferredTrack: trackPreferenceSchema.optional(), clockSelection: clockSelectionSchema.optional(),
+  preferredTrack: trackPreferenceSchema.optional(),
 });
 export type PendingImport = z.infer<typeof pendingSchema>;
 export const timingSchema = z.object({ mediaHash: digestSchema, trackKey: z.string(), alignment: alignmentSchema, createdAt: z.string(), updatedAt: z.string() });
@@ -33,7 +31,7 @@ export const librarySchema = z.object({
   media: z.record(digestSchema, z.object({
     hash: digestSchema, name: z.string(), size: z.number().int().nonnegative().safe(), locations: z.array(identitySchema.omit({ sha256: true })),
     probe: z.object({ version: z.literal(1), data: probeSchema }).optional().catch(undefined),
-    clockSelection: clockSelectionSchema.optional(), preferredTrack: trackPreferenceSchema.optional(), lastOpenedAt: z.string().optional(),
+    preferredTrack: trackPreferenceSchema.optional(), lastOpenedAt: z.string().optional(),
   })),
   timings: z.record(z.string(), timingSchema), conflicts: z.record(z.string(), z.array(alignmentSchema)),
   pendingImports: z.record(z.string(), pendingSchema),
@@ -78,7 +76,7 @@ function migrate(raw: unknown): LibraryData {
   }
   for (const item of Object.values(legacy.pendingImports)) {
     const pending: PendingImport = { id: item.id, path: item.path, version: item.version, createdAt: item.createdAt,
-      edits: {}, conflicts: {}, clockSelection: item.clockSelection, preferredTrack: commonTrack(Object.values(item.preferences)) };
+      edits: {}, conflicts: {}, preferredTrack: commonTrack(Object.values(item.preferences)) };
     for (const track of new Set(Object.values(item.edits).map(edit => edit.trackKey))) {
       const values = Object.values(item.edits).filter(edit => edit.trackKey === track).map(edit => edit.alignment), alignment = commonAlignment(values);
       if (alignment) pending.edits[track] = alignment; else pending.conflicts[track] = values;

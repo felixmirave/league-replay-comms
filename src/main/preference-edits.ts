@@ -1,12 +1,11 @@
 import { basename, resolve } from 'node:path';
 import type { ReviewLibrary } from '../library/library';
-import { sameFileVersion, type ClockSelection, type FileIdentity, type LibraryData, type TrackPreference } from '../library/model';
+import { sameFileVersion, type FileIdentity, type LibraryData, type TrackPreference } from '../library/model';
 import { sameMedia, type MediaReference } from './review-reference';
 
 type Settings = LibraryData['settings'];
 type Edit = { revision: number; error?: string } & (
   | { kind: 'setting'; key: keyof Settings; value: Settings[keyof Settings] }
-  | { kind: 'clock'; media: MediaReference; selection: ClockSelection }
   | { kind: 'track'; media: MediaReference; trackKey: string }
 );
 
@@ -20,7 +19,7 @@ export class PreferenceEdits {
     const edit = failed[0];
     if (!edit) return;
     const label = edit.kind === 'setting' ? { volume: 'Volume', mediaFolders: 'Media folders', selectedInstallation: 'League installation' }[edit.key]
-      : `${basename(edit.media.path)} · ${edit.kind === 'clock' ? 'clock region' : 'selected audio track'}`;
+      : `${basename(edit.media.path)} · selected audio track`;
     return `${failed.length} unsaved preference${failed.length === 1 ? '' : 's'}. ${label}: ${edit.error}`;
   }
   settings(): Settings {
@@ -37,14 +36,6 @@ export class PreferenceEdits {
   async flushVolume(): Promise<void> {
     const edit = [...this.edits].find(edit => edit.kind === 'setting' && edit.key === 'volume');
     if (edit) await this.commit(edit);
-  }
-  clockSelection(media: MediaReference, saved?: ClockSelection): ClockSelection | undefined {
-    let latest = saved;
-    for (const edit of this.edits) if (edit.kind === 'clock' && sameMedia(edit.media, media) && edit.revision > (latest?.revision ?? -1)) latest = edit.selection;
-    return latest && structuredClone(latest);
-  }
-  saveClock(media: MediaReference, selection: ClockSelection): Promise<void> {
-    return this.save({ kind: 'clock', media, selection: structuredClone(selection), revision: selection.revision });
   }
   preferTrack(media: MediaReference, trackKey: string, revision = this.library.nextAlignmentRevision()): Promise<void> {
     return this.save({ kind: 'track', media, trackKey, revision });
@@ -73,8 +64,7 @@ export class PreferenceEdits {
   private retain(edit: Edit): boolean {
     const matches = [...this.edits].filter(previous =>
       (previous.kind === 'setting' && edit.kind === 'setting' && previous.key === edit.key)
-      || (previous.kind === 'track' && edit.kind === 'track' && sameMedia(previous.media, edit.media))
-      || (previous.kind === 'clock' && edit.kind === 'clock' && sameMedia(previous.media, edit.media)));
+      || (previous.kind === 'track' && edit.kind === 'track' && sameMedia(previous.media, edit.media)));
     if (matches.some(previous => previous.revision > edit.revision)) return false;
     for (const previous of matches) this.edits.delete(previous);
     this.edits.add(edit);
@@ -84,7 +74,6 @@ export class PreferenceEdits {
     if (!this.edits.has(edit)) return;
     try {
       if (edit.kind === 'setting') await this.library.updateSettings({ [edit.key]: edit.value });
-      else if (edit.kind === 'clock') await this.library.saveClockSelection(edit.media, edit.selection);
       else await this.library.preferTrack(edit.media, edit.trackKey, edit.revision);
       this.edits.delete(edit);
     } catch (error) { edit.error = error instanceof Error ? error.message : String(error); throw error; }

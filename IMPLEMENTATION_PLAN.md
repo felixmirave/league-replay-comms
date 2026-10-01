@@ -1,10 +1,12 @@
 # League replay comms implementation plan
 
-Updated: 2026-09-30. Status: agreed product scope; implementation in progress. Saved reviews, media previews, and experimental offline clock analysis have been built and tested locally. No current-League or clean-Windows acceptance gate has passed. See [implementation and validation status](tests/acceptance/STATUS.md).
+Updated: 2026-10-01. Status: agreed product scope; implementation in progress. Saved reviews, media previews, and experimental offline clock analysis have been built and tested locally. No current-League or clean-Windows acceptance gate has passed. See [implementation and validation status](tests/acceptance/STATUS.md).
 
 This is the authoritative implementation plan. Implementation defaults can change when measurements justify it. Changes to user-visible scope or accuracy targets must be recorded explicitly.
 
 Scope revision, 2026-09-30: the user rejected manual replay-file selection and replay-confirmation tasks. Remember timing by recording contents and audio track. Replay-to-recording links are an optional convenience only when automatic replay identification is validated; otherwise omit that feature and ask only for the recording. Schema 6 implements recording-based timing and preserves earlier replay-keyed data for recovery.
+
+Scope revision, 2026-10-01: retain automatic top-right clock detection and fall directly back to manual anchoring if it fails. Remove video-frame previews and user-selected clock regions. Preserve existing saved alignments and legacy library data.
 
 Implementation order: validate the packaged clock/player integration, complete synchronization and manual review, add the durable recording library, integrate automatic video alignment and guided setup, then validate the release on Windows. The milestones below define deliverables and exit criteria; a described feature is not a claim that it is already implemented.
 
@@ -44,7 +46,7 @@ The application must:
 - Recognize byte-identical recordings after renames, moves, or copies. Automatically restore a replay's recording only if a reliable automatic replay identity is available; this convenience is not a required feature.
 - Detect Replay API configuration and help the user enable it, including an optional automatic config edit.
 
-Outside scope: automatic audio-only anchoring, acoustic fingerprinting, speech recognition, recorder integration, recording-time metadata or sidecars, tournament-pause mapping, and edited/segmented recording timelines. These are not deferred milestones. A synchronized POV video player and simultaneous mixing of several audio tracks are not part of the first release; video frames are used for alignment and preview.
+Outside scope: automatic audio-only anchoring, acoustic fingerprinting, speech recognition, recorder integration, recording-time metadata or sidecars, tournament-pause mapping, and edited/segmented recording timelines. These are not deferred milestones. A synchronized POV video player and simultaneous mixing of several audio tracks are not part of the first release; video frames are decoded internally for automatic alignment.
 
 Never ask users to locate or confirm a `.rofl` file. Automatic replay identification must fail quietly to the recording chooser, without blocking playback setup or requesting additional permissions solely for match identification.
 
@@ -60,12 +62,12 @@ The [guided UI design](UX_DESIGN.md) specifies the accepted finite-state flow wi
 2. If needed, use **Enable replay connection** and restart the replay in League.
 3. Connect to the open replay automatically. Optional background match identification may restore a known recording; lack of match identity adds no user task.
 4. Drop or select a recording, or choose a recent recording. If it has multiple audio tracks and no saved choice, preview and select the comms track.
-5. For video, run clock alignment and show progress. For audio, open manual alignment immediately. Manual alignment remains available while video analysis runs.
+5. For video, run top-right clock detection and show progress; a failure opens manual alignment directly. For audio, open manual alignment immediately. Manual alignment remains available while video analysis runs.
 6. Once alignment is accepted, select **Start listening**. Bind the selected recording to this runtime session internally, follow League's controls, and save timing by recording/track locally.
 
 ### Manual alignment and corrections
 
-The alignment view contains a waveform/timeline, recording playback and scrubbing, replay and recording timestamps, timestamp entry, **Align here**, and timing nudges. Show a video frame preview and clock crop selector when the source contains video.
+The alignment view contains a waveform/timeline, recording playback and scrubbing, replay and recording timestamps, timestamp entry, **Align here**, and timing nudges. Use the same manual editor for audio and video, without frame previews or clock-area selection.
 
 Entering this view suspends following and gives recording playback to preview mode. It must remain possible to audition a recording without a connected replay. It does not pause or seek League automatically.
 
@@ -314,14 +316,14 @@ Run hashing, waveform generation, and video analysis as cancellable jobs outside
 
 Decode sampled windows for OCR. For a waveform, stream selected-track PCM into fixed-resolution min/max buckets instead of retaining full-match PCM in memory. Cache derived data by content identity, stream identity, and algorithm/timeline version. Keep pending-import results provisional until full identity is established.
 
-Begin with one heavy decode/OCR job and one streaming hash job at a time. Treat these as resource limits to measure, not accuracy requirements. Give interactive preview requests priority over queued analysis, limit each job's decoded-frame queue, and cancel obsolete child processes as well as their JavaScript promises. A worker crash or analysis timeout leaves manual review available. Report progress by stage and completed work; do not present a guessed percentage as a measured completion estimate.
+Begin with one heavy decode/OCR job and one streaming hash job at a time. Treat these as resource limits to measure, not accuracy requirements. Prioritize clock frames over background waveform chunks, limit each job's decoded-frame queue, and cancel obsolete child processes as well as their JavaScript promises. A worker crash or analysis timeout leaves manual review available. Report progress by stage and completed work; do not present a guessed percentage as a measured completion estimate.
 
 ### Clock alignment pipeline
 
 Use one visible clock tick. The recording may start after game start, end before game end, or contain only a short part of the match; neither match boundary is needed.
 
 1. Search short regions of the recording for a readable game clock. Begin at the recording start, then try distributed locations if the clock is missing or obscured. Stop searching as soon as one usable transition is found.
-2. Use the supported normalized HUD crop, or the user's selected crop. Enlarge the crop and OCR digits/colon; require a complete `mm:ss` reading with valid seconds and confidence at least 40/100.
+2. Use the supported normalized crop for the top-right game clock. Enlarge the crop and OCR digits/colon; require a complete `mm:ss` reading with valid seconds and confidence at least 40/100.
 3. When sparse samples show the clock advancing by one second, narrow that interval. Request the actual next decoded frame after each candidate frame until two **consecutive frames** show `s` and `s + 1`. An unreadable intervening frame cannot be skipped when constructing the pair. Use actual presentation timestamps, including variable frame rates and nonzero stream origins.
 4. Set `midpoint = (beforeMediaSeconds + afterMediaSeconds) / 2`. Assume that midpoint corresponds exactly to replay time `s + 1`, and set `offset = midpoint - (s + 1)`.
 5. Apply and save the offset automatically, subject to the existing media/track/revision guards. Keep playback paused until the user selects **Start listening**. Offer **Adjust timing** for manual corrections.
@@ -330,13 +332,13 @@ For example, frames at recording times `1:05.030` and `1:05.040` showing `0:59` 
 
 There are no cross-recording consistency checks, holdouts, drift tests, minimum coverage requirements, or HUD/API phase-calibration gate. Search locations locate a tick; they do not validate each other. Only the chosen adjacent pair determines the offset. The midpoint-to-replay relationship is an explicit assumption, not a measured accuracy guarantee. Half the frame interval describes sampling resolution only.
 
-Keep the 300-frame / 180-second work budget, cancellation, manual crop selection and manual alignment fallback. If no readable adjacent tick is found, return needs-attention and retain any saved alignment. Short footage containing no clock change cannot supply an automatic anchor.
+Keep the 300-frame / 180-second work budget and cancellation. If no readable adjacent tick is found or analysis fails, return needs-attention, open manual alignment directly, and retain any saved alignment. Short footage containing no clock change cannot supply an automatic anchor.
 
 Persist the two clock readings with their actual media timestamps, midpoint, method and algorithm version, crop, selected video stream, canonical origin, base offset and manual correction. Continue reading legacy saved alignment evidence without reinterpreting it as a consecutive-frame pair.
 
 ### Reuse and cache boundaries
 
-Remember the selected video stream and normalized clock crop as a versioned media preference, including when analysis fails. Keep this preference in durable library data so cache eviction does not force the user to select the crop again. Promote provisional preferences after hashing using the same edit ordering as alignment changes.
+New analysis uses the first video stream and the supported top-right clock region. Discard obsolete crop preferences when loading old libraries. Saved alignments and their evidence remain valid.
 
 Cache the two consecutive-frame OCR observations, not a previously applied offset. Key the cache by the verified media digest, video stream, canonical origin, analyzed interval, crop, sampling/timeline versions, and decoder/OCR resource identity. Recompute the midpoint from the cached pair. Increment the analysis version so old sparse-window observations cannot be reused as consecutive-frame evidence. An explicit re-run bypasses cached readings.
 
@@ -344,9 +346,9 @@ Validate file version before and after analysis or cache restoration. Evidence c
 
 ### Applying results
 
-Each job captures media identity or provisional import ID, selected stream/track, media selection generation, and alignment revision. Replay-derived anchors also capture the runtime generation; pixel-only analysis does not require a replay identity. Apply a result only if its dependencies still match and no manual change occurred since that job started. Crop changes and explicit re-runs create a new analysis revision. Obsolete results may populate compatible caches but cannot update the active alignment.
+Each job captures media identity or provisional import ID, selected stream/track, media selection generation, and alignment revision. Replay-derived anchors also capture the runtime generation; pixel-only analysis does not require a replay identity. Apply a result only if its dependencies still match and no manual change occurred since that job started. Explicit re-runs create a new analysis revision. Obsolete results may populate compatible caches but cannot update the active alignment.
 
-Initial automatic analysis starts after recording content identification and saved recording/track timing reconciliation. It must not depend on replay identity or replace a saved manual offset still being restored. Preview, manual alignment, and an explicit **Read game clock** request remain available during hashing. A cancel/crop/manual action during identification suppresses that import's pending initial analysis.
+Initial automatic analysis starts after recording content identification and saved recording/track timing reconciliation. It must not depend on replay identity or replace a saved manual offset still being restored. Preview, manual alignment, and an explicit **Read game clock** request remain available during hashing. A cancellation or manual action during identification suppresses that import's pending initial analysis.
 
 Keep the previous accepted alignment while reanalysis runs. On successful initial alignment or an explicit re-run, store the new base offset and reset manual correction to zero as one revision; do not add an old correction to a newly accepted estimate implicitly. Provide manual adjustment for recorded microphone/picture delay; OCR cannot infer that from pixels.
 
@@ -372,7 +374,7 @@ Use a versioned library document with these logical records. Field spelling may 
 | Record/key | Required data |
 | --- | --- |
 | Optional automatic replay link, keyed by validated replay identity | Preferred recording hash and audio track, provenance of automatic identity, revision; omitted when reliable automatic identification is unavailable |
-| Media, keyed by SHA-256 | Byte size, known paths/file versions, probed streams, canonical timeline metadata, preferred audio track, selected video stream/crop and preference revision, analysis cache references |
+| Media, keyed by SHA-256 | Byte size, known paths/file versions, probed streams, canonical timeline metadata, preferred audio track and preference revision, analysis cache references |
 | Recording timing, unique by media hash + audio stream identity | Base offset, manual correction, source (`manual` or `video-clock`), optional anchor/evidence reference, alignment revision, created/updated dates |
 | Path observation | Path, volume/file identifier where available, size, modification/change timestamps, verified digest and verification date |
 | Analysis cache entry | Media hash, relevant streams/crop, algorithm and timeline versions, evidence/result or derived-file location |
@@ -508,7 +510,7 @@ Exit: the probe meets measured following/recovery targets through a full replay 
 
 Implement in this order:
 
-1. Import/probing, stream selection, waveform/frame preview, manual anchor/nudge controls, and status/error actions.
+1. Import/probing, stream selection, waveform and audio preview, manual anchor/nudge controls, and status/error actions.
 2. Recording-based library schema/migrations, background hashing, provisional-import reconciliation, per-track timing, and file relocation; optional automatic replay links only if validated.
 3. Video crop detection, consecutive-frame midpoint alignment, versioned cache, and manual-override protection.
 4. Installation chooser, configuration inspection/edit/backup workflow, restart guidance, and diagnostics view.
@@ -595,9 +597,9 @@ Use these as dependency-ordered implementation tasks. File references identify t
 | 1. Portable foundation | `src/main/`, `src/preload/`, `src/shared/`, `scripts/`, `resources/`: typed IPC, validated commands, one app instance, bundled resources, child ownership, and portable packaging | First. Exact executable launches offline as a standard Windows user; no Node/npm or media-tool installation; owned children stop after exit/crash |
 | 2. Replay observations and identity | `src/sync/replay.ts`, `src/platform/`, `src/main/review-session.ts`: trusted loopback requests, bounded polling, stale detection, runtime generations, listening intent, and optional validated automatic replay discovery | Requires package 1. Current-client traces establish field/seek semantics; recording-only following works without persistent replay identity; changed/ambiguous sessions stop old listening intent without requesting a replay file |
 | 3. Player and synchronization | `src/sync/controller.ts`, `engine.ts`, `mpv-ipc.ts`: canonical timeline, selected-track playback, fresh clock comparison, latest-target recovery, pitch-preserving rates, and preview ownership | Requires packages 1–2. Generated media and real engine tests cover timestamp conversion and stale completions; Windows measurements establish transition and following behavior |
-| 4. Manual review | `src/analysis/`, `src/main/preview-session.ts`, `src/main/review-session.ts`, `src/renderer/`: cancellable probing, track audition, waveform/still previews, explicit timestamp anchors, and 10/100 ms corrections | Requires package 3. Audio and video can be manually aligned; disconnected preview works; timing nudges have the specified sign; switching sessions cancels obsolete jobs |
+| 4. Manual review | `src/analysis/`, `src/main/preview-session.ts`, `src/main/review-session.ts`, `src/renderer/`: cancellable probing, track audition, waveform and audio previews, explicit timestamp anchors, and 10/100 ms corrections | Requires package 3. Audio and video can be manually aligned; disconnected preview works; timing nudges have the specified sign; switching sessions cancels obsolete jobs |
 | 5. Durable library | `src/library/`, `src/analysis/hash-*`, `src/main/alignment-edits.ts`, `src/main/quit.ts`: streaming SHA-256, provisional reconciliation, recording/track timing, relocation, legacy migration, optional automatic links, and save-error recovery | Requires packages 2 and 4. Restart, rename, move, duplicate import, changed content, conflicting legacy offsets, failed writes, and exit with unsaved edits preserve recording timing and newest accepted manual intent |
-| 6. Automatic video alignment | `src/analysis/video-clock.ts`, `clock-fit.ts`, `ocr-*`, `src/library/clock-cache.ts`: bounded tick search, crop selection, consecutive-frame decoding, automatic midpoint alignment, cache validation, and revision-safe application | Requires packages 4–5. Real original-POV/replay pairs establish offset accuracy and false-acceptance behavior; unsupported cases fall back to manual review without changing an accepted alignment |
+| 6. Automatic video alignment | `src/analysis/video-clock.ts`, `clock-fit.ts`, `ocr-*`, `src/library/clock-cache.ts`: bounded top-right tick search, consecutive-frame decoding, automatic midpoint alignment, cache validation, and revision-safe application | Requires packages 4–5. Real original-POV/replay pairs establish offset accuracy and false-acceptance behavior; unsupported cases fall back to manual review without changing an accepted alignment |
 | 7. Guided connection setup | `src/platform/`, `src/main/league-setup.ts`, `src/renderer/setup.tsx`, `resources/scripts/`: installation discovery, independent config/connectivity status, scoped enable/restore, backup verification, and permission handling | Discovery starts in package 2; complete alongside packages 4–6. Windows tests cover byte preservation, locks, concurrent changes, elevation accepted/declined, and guarded restore; ordinary review stays unelevated |
 | 8. Release validation | `scripts/`, `tests/integration/`, `tests/acceptance/`: repeatable Windows builds, native/resource integrity checks, notices and source obligations, signing preparation, user workflow tests, and audible measurements | Requires packages 1–7. Exact artifact completes the clean-Windows workflow and the documented timing gates; publish supported versions/devices and measured limits with its checksum |
 
@@ -611,8 +613,8 @@ Use deterministic tests for controller decisions and race conditions, real proce
 | Engine/lifecycle | WAV/compressed audio; MP4/MKV tracks; exact seeks; delayed completion; pipe disconnect; startup/load/engine failure; output-device change; parent crash; sleep/resume |
 | Timestamps | VFR, nonzero/negative timestamps, A/V start offsets, codec priming, track playable ranges, recording starting mid-match |
 | OCR | Resolutions/HUD scales, compression, timer rollover, overlays/occlusion, missing clock, wrong digits/crop, loading screens, partial and short recordings, consecutive VFR frames, unreadable intervening frames, immediate acceptance without later checks, bounded search and automatic application |
-| Analysis reuse | Rename/cache hit, restored crop without accepted alignment, changed stream/origin/crop/runtime, explicit re-run, corrupt cache, cache write failure, provisional identity completion in either order, source changed during analysis |
-| Manual workflow | Audio-only immediately available, video fallback/crop adjustment, timestamp entry, nudge sign, edit during OCR, failed re-run retains alignment, preview/follow transitions |
+| Analysis reuse | Rename/cache hit, obsolete crop preferences removed without losing timing, changed stream/origin/crop/runtime, explicit re-run, corrupt cache, cache write failure, provisional identity completion in either order, source changed during analysis |
+| Manual workflow | Audio-only immediately available, direct video-to-manual fallback without frame/crop controls, timestamp entry, nudge sign, edit during OCR, failed re-run retains alignment, preview/follow transitions |
 | Library | Restart/upgrade, rename/move/copy/duplicates, missing file, same-name replacement, changed content, interrupted/concurrent hashing, provisional merge, track-specific offsets, interrupted writes/migration recovery, unsaved edits across switches and exit |
 | Setup | Enabled/disabled/missing key, missing section/file, multiple/custom installations, malformed/duplicate config, encodings/line endings, permissions/locks, concurrent edits, elevation declined, backup/readback, enabled config without replay |
 | Package | Offline first launch, standard user, spaces/non-ASCII/long filenames, minimization, concurrent analysis, corrupt/unsupported input, resource discovery, executable update/relaunch |

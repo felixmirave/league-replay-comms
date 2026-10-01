@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { clockReadingSchema } from '../shared/clock';
-import { cropSchema } from '../shared/geometry';
+import { cropSchema, gameClockCrop } from '../shared/geometry';
 import { clockAnalysisVersion, type VideoClockRequest } from '../analysis/video-clock';
 import { digestSchema } from './model';
 import { DerivedCache } from './derived-cache';
@@ -17,7 +17,7 @@ export class ClockCache {
     return this.cache.get(this.key(key), raw => {
       const value = evidenceSchema.parse(raw);
       if (value.readings.some(reading => reading.mediaSeconds < key.startSeconds || reading.mediaSeconds >= key.endSeconds)) throw new Error('Clock evidence is outside its recording window');
-      if (key.crop && JSON.stringify(value.crop) !== JSON.stringify(cropSchema.parse(key.crop))) throw new Error('Clock evidence has a different crop');
+      if (JSON.stringify(value.crop) !== JSON.stringify(gameClockCrop)) throw new Error('Clock evidence has a different crop');
       return value;
     });
   }
@@ -25,7 +25,6 @@ export class ClockCache {
   flush(): Promise<void> { return this.cache.flush(); }
   private key(key: Key): unknown[] {
     digestSchema.parse(key.hash);
-    const crop = key.crop && cropSchema.parse(key.crop);
-    return ['video-clock', clockAnalysisVersion, 1, this.runtimeId, key.hash, key.streamIndex, key.originSeconds, key.startSeconds, key.endSeconds, crop ? [crop.x, crop.y, crop.width, crop.height] : null];
+    return ['video-clock', clockAnalysisVersion, 1, this.runtimeId, key.hash, key.streamIndex, key.originSeconds, key.startSeconds, key.endSeconds, [gameClockCrop.x, gameClockCrop.y, gameClockCrop.width, gameClockCrop.height]];
   }
 }

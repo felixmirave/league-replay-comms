@@ -1,7 +1,7 @@
 import { mkdir, readFile, copyFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { timingKey, emptyLibrary, FutureLibraryError, sameFileVersion, validateLibrary, type Alignment, type RecordingTiming, type ClockSelection, type FileIdentity, type FileVersion, type LibraryData, type PendingImport } from './model';
+import { timingKey, emptyLibrary, FutureLibraryError, sameFileVersion, validateLibrary, type Alignment, type RecordingTiming, type FileIdentity, type FileVersion, type LibraryData, type PendingImport } from './model';
 import { atomicWrite } from './storage';
 import type { MediaProbe } from '../shared/media';
 
@@ -39,7 +39,7 @@ export class ReviewLibrary {
     const records = [...Object.values(this.data.timings).map(item => item.alignment), ...Object.values(this.data.conflicts).flat(),
       ...Object.values(this.data.pendingImports).flatMap(item => [...Object.values(item.edits), ...Object.values(item.conflicts).flat()])];
     const preferences = [...Object.values(this.data.media), ...Object.values(this.data.pendingImports)];
-    this.issuedRevision = Math.max(this.issuedRevision, ...records.map(item => item.revision), ...preferences.flatMap(item => [item.preferredTrack?.revision ?? 0, item.clockSelection?.revision ?? 0])) + 1;
+    this.issuedRevision = Math.max(this.issuedRevision, ...records.map(item => item.revision), ...preferences.map(item => item.preferredTrack?.revision ?? 0)) + 1;
     return this.issuedRevision;
   }
   async remember(identity: FileIdentity): Promise<void> { await this.transaction(data => this.putFile(data, identity)); }
@@ -75,7 +75,6 @@ export class ReviewLibrary {
       if (!sameFileVersion(pending.version, identity.version) || pending.path !== identity.path) throw new Error('Recording changed since import; its provisional alignment was not restored');
       this.putFile(data, identity);
       const file = data.media[identity.sha256]!;
-      if (pending.clockSelection && pending.clockSelection.revision > (file.clockSelection?.revision ?? -1)) file.clockSelection = pending.clockSelection;
       if (probe) file.probe = { version: 1, data: probe };
       for (const [trackKey, alignment] of Object.entries(pending.edits).sort((a, b) => a[1].revision - b[1].revision)) this.putTiming(data, identity.sha256, trackKey, alignment);
       for (const [trackKey, conflicts] of Object.entries(pending.conflicts)) {
@@ -96,13 +95,6 @@ export class ReviewLibrary {
     await this.transaction(data => {
       if (!data.media[hash]) throw new Error('Identify the recording before caching its media information');
       data.media[hash]!.probe = { version: 1, data: probe };
-    });
-  }
-  async saveClockSelection(media: { hash?: string; importId?: string }, selection: ClockSelection): Promise<void> {
-    await this.transaction(data => {
-      const record = media.hash ? data.media[media.hash] : media.importId ? data.pendingImports[media.importId] : undefined;
-      if (!record) throw new Error('Open and identify a recording before saving its clock region');
-      if ((record.clockSelection?.revision ?? -1) < selection.revision) record.clockSelection = selection;
     });
   }
   async preferTrack(media: { hash?: string; importId?: string }, trackKey: string, revision = this.nextAlignmentRevision()): Promise<void> {

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ReplaySample, SyncStatus, AudioOutputState } from './domain';
 import type { Alignment } from '../library/model';
 import type { MediaProbe, TrackRange } from './media';
-import { cropSchema, type PreviewView } from './analysis';
+import type { PreviewView } from './analysis';
 import type { ClockView } from './clock';
 import type { SetupView } from './setup';
 import type { WorkflowView } from './workflow';
@@ -28,9 +28,6 @@ export const userCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('export-trace'), includePaths: z.boolean().optional() }),
   z.object({ type: z.literal('open-notices') }),
   z.object({ type: z.literal('retry') }),
-  z.object({ type: z.literal('preview-frame'), positionSeconds: z.number().finite().nonnegative() }),
-  z.object({ type: z.literal('preview-video'), streamIndex: z.number().int().nonnegative() }),
-  z.object({ type: z.literal('preview-crop'), crop: cropSchema.optional() }),
   z.object({ type: z.literal('analyze-clock') }),
   z.object({ type: z.literal('cancel-clock') }),
   z.object({ type: z.literal('setup-refresh') }),

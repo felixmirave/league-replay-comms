@@ -1,6 +1,6 @@
 # Implementation and validation status
 
-Updated: 2026-09-30. Version 0.1.1 implements the guided review workflow and
+Updated: 2026-10-01. Version 0.2.0 implements the guided review workflow and
 single-transition video alignment. Windows/current-League acceptance remains open.
 
 ## Implemented behavior
@@ -13,8 +13,10 @@ single-transition video alignment. Windows/current-League acceptance remains ope
   their timestamp midpoint, and maps it to the newly displayed game second. It
   supports partial recordings and applies timing automatically without consistency,
   holdout, or phase-calibration gates. Following requires **Start listening**.
-- Audio-only recordings use manual anchors. Video crop selection and manual timing
-  corrections remain available. A late analysis result cannot overwrite newer edits.
+- Audio-only recordings and failed top-right clock detection use manual anchors.
+  Audio preview, waveform seeking, and manual timing corrections remain available;
+  there is no frame viewer or clock-region selector. A late analysis result cannot
+  overwrite newer edits.
 - Schema 6 saves timing by recording SHA-256 and audio track, restores renamed/moved
   files, preserves legacy records, and retains failed edits for retry. Analysis
   version 4 caches the chosen frame pair and invalidates earlier sparse-window caches.

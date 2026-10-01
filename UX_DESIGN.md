@@ -5,7 +5,7 @@ Implementation: the production window now uses `GuidedWorkflow` in
 `src/renderer/timing-editor.tsx` retains local timing drafts. Schema 6 persists
 recording/track timing without manual replay associations.
 
-Accepted design direction, revised 2026-09-30: no manual replay-file selection or replay-confirmation task. This specifies the implemented user flow. The [implementation plan](IMPLEMENTATION_PLAN.md) owns playback, recording identity, alignment, and accuracy requirements.
+Accepted design direction, revised 2026-10-01: no manual replay-file selection or replay-confirmation task. Failed automatic clock detection goes directly to manual alignment, without frame previews or clock-area selection. This specifies the implemented user flow. The [implementation plan](IMPLEMENTATION_PLAN.md) owns playback, recording identity, alignment, and accuracy requirements.
 
 Replace the dashboard with one current task. Show one primary action when the user needs to act, and advance automatically when the application can do the work. Preserve access to changing a choice, cancelling work, and Settings without making them compete with the next step.
 
@@ -46,9 +46,7 @@ flowchart TD
     J -->|Video needs timing| K[Read video clock automatically]
     J -->|Audio needs timing| L[Match one moment manually]
     K -->|Readable adjacent clock tick| N
-    K -->|Clock not found| O[Select clock area or align manually]
-    O --> K
-    O --> L
+    K -->|Clock not found or analysis failed| L
     L --> N
     N --> P[Listen while controlling League]
 ```
@@ -71,7 +69,7 @@ flowchart TD
 | Recording opening | **Opening recording…** | Automatic. File identification runs in the background where safe; do not freeze preview or manual alignment. |
 | Several audio tracks, no saved choice | **Which track has the comms?** Show tracks with short preview controls. | **Use this track**. Selecting a radio item alone does not advance. A single playable track is selected automatically. |
 | Video needs alignment | **Finding the game clock…** | Automatic analysis. **Align manually** remains a secondary escape. |
-| Clock cannot be located | **Show us the game clock**. Display a suitable frame and a clock-area selector. | **Read this clock**. Offer **Align manually** secondarily. |
+| Clock cannot be read or analysis fails | **Match one moment**. Explain briefly that automatic detection failed. | Open manual alignment directly; **Use this moment** saves the anchor. |
 | Audio-only or manual fallback | **Match one moment**. Guide the user through pairing a replay moment and recording position. | **Use this moment**; see the manual flow below. |
 | All playback prerequisites met | **Ready to listen**. Show the recording. “Comms will follow playback, pauses, and jumps in League.” | **Start listening**. Internally attach listening intent to the current viewer generation. Persistent match identity is not required. |
 | Following | **Following League**. Show the replay time, rate, and volume. | No required next action. **Stop listening** is the single prominent control; **Adjust timing** is secondary. |
@@ -84,11 +82,11 @@ The returning flow is **choose the recording → restore its track and timing �
 
 ### Video
 
-Start clock analysis automatically for a new video. Show a real stage such as **Finding a clock tick…**, not invented percentage progress. Measurable byte/frame progress can be shown where it reflects the actual work. Preserve manual editing and offer cancellation during slow analysis. [Microsoft progress guidance](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/progress-controls) distinguishes measurable progress from indeterminate activity.
+Start clock analysis automatically for a new video, using the top-right timer region. Show a real stage such as **Finding a clock tick…**, not invented percentage progress. Measurable byte/frame progress can be shown where it reflects the actual work. Preserve manual editing and offer cancellation during slow analysis. [Microsoft progress guidance](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/progress-controls) distinguishes measurable progress from indeterminate activity.
 
 When two consecutive frames show the game clock advancing one second, map their midpoint directly to the new game second and go to Ready. Do not ask the user to confirm the estimate. No consistency check, holdout, minimum recording coverage or phase profile is required; the recording can start late or end early. **Adjust timing** remains available. Playback still requires **Start listening**.
 
-If no readable adjacent tick is found, show the crop selector or manual alignment fallback. Preserve any saved timing when analysis fails. The [implementation plan](IMPLEMENTATION_PLAN.md#clock-alignment-pipeline) defines the midpoint assumption and evidence format.
+If no readable adjacent tick is found or analysis fails, open manual alignment directly. Do not display video frames or ask the user to select a clock region. Preserve any saved timing when analysis fails. The [implementation plan](IMPLEMENTATION_PLAN.md#clock-alignment-pipeline) defines the midpoint assumption and evidence format.
 
 ### Manual audio alignment
 
@@ -147,7 +145,7 @@ Seven parent states are sufficient:
 | `setup` | Choose folder/installation, enable, edit in progress, permission, repair |
 | `replay` | Await viewer, connection repair; optional automatic identity is background work and never a user task |
 | `recording` | Choose, open, locate missing file, choose track, media repair |
-| `alignment` | Analyze, choose crop, manual editor |
+| `alignment` | Analyze, manual editor |
 | `ready` | Valid review awaiting explicit start, or stopped review |
 | `listening` | Following, replay paused, resynchronizing, outside recording, reconnecting, output repair |
 
@@ -181,7 +179,7 @@ Shared snapshots expose the workflow view alongside setup, library, analysis, an
 
 1. Add the workflow transition/presentation module and event contract. Define all required repairs and guard ordering before wiring screens.
 2. Replace the permanent renderer panels with the task frame. Connect setup and runtime detection, preserving explicit edit permissions and backups. Remove manual replay commands and following's dependency on a persisted replay hash.
-3. Migrate recording/track timing and recent recordings, preserving conflicting legacy offsets for checking. Add restoration/import/track tasks, then reuse waveform/frame controls inside the alignment editor. Apply detected midpoint timing automatically; keep manual corrections in a cancellable draft.
+3. Migrate recording/track timing and recent recordings, preserving conflicting legacy offsets for checking. Add restoration/import/track tasks, then reuse waveform and audio preview controls inside the alignment editor. Apply detected midpoint timing automatically; keep manual corrections in a cancellable draft.
 4. Add the compact listening screen, contextual recovery, Settings, and offline preparation. Update the review automation to drive user tasks rather than old panel labels.
 5. Exercise transitions and real UI paths; then observe unfamiliar players completing a first video review, returning review, audio-only alignment, and missing-file recovery without coaching.
 
@@ -194,6 +192,6 @@ Acceptance criteria:
 - A readable adjacent clock tick applies timing automatically without confirmation. Recording identity, clock freshness, job generations, and persistence remain guarded; playback does not require persistent match identity or claim a verified recording-to-match pairing.
 - Manual work survives disconnects, new background results, retries, and failed saves.
 - Recovery never requires opening diagnostics. No endless wait without contextual help or an alternative path.
-- All actions work with keyboard alone. Crop selection supports keyboard operation and non-drag pointer selection, such as choosing two corners; manual alignment remains available too. Inputs have labels; focus is visible and returns sensibly after dialogs. See [W3C dragging alternatives](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements.html).
+- All actions work with keyboard alone. Manual alignment requires no dragging. Inputs have labels; focus is visible and returns sensibly after dialogs.
 - Meaningful state changes are announced through a status region; replay ticks are not announced repeatedly. Move focus to the task heading after deliberate navigation, and do not steal focus during editing. See [W3C status messages](https://www.w3.org/WAI/WCAG22/Understanding/status-messages.html) and [focus order](https://www.w3.org/WAI/WCAG22/Understanding/focus-order.html).
 - Verify contrast, text scaling, keyboard behavior, and screen-reader announcements in the packaged Windows application.

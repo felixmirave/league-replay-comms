@@ -94,18 +94,18 @@ does not establish successful Windows startup or audio output.
 6. With League disconnected, enter explicit game/recording timestamps and preview
    the recording. Save/reopen, then connect and use Start listening.
 7. Click and zoom the waveform, seek repeatedly during generation, and change
-   recordings/tracks. A late result must not replace the current preview. For
-   video, display a still, drag a clock crop, and copy its timestamp into the
-   manual anchor. Compare against independently known frame times, including VFR
-   footage and nonzero stream starts. Crop/frame controls must pause following.
-8. Read a video's game clock, retry with a selected crop, and cancel during decoding
-   or recognition. Make a manual anchor/nudge while analysis runs; a late result
+   recordings/tracks. A late result must not replace the current preview. Copy
+   the audio playhead time into a manual anchor, including recordings with nonzero
+   stream starts. No video frames or clock-region selection controls should appear.
+8. Read a video's top-right game clock. With an unreadable or hidden clock, or a
+   decoding/OCR failure, the app must open **Match one moment** directly. Enter and
+   save a manual anchor. Retry detection and cancel during decoding or recognition. Make a manual anchor/nudge while analysis runs; a late result
    must retain the edit. Re-run while aligned and check that failure retains it.
    A successful reading must apply the consecutive-frame midpoint automatically,
    including for late-starting or early-ending clips. It must not start following.
    Use the exact executable with network access unavailable to test local OCR assets.
 9. Restart after a successful clock reading, rename the video, and reopen it. Verify
-   its crop and saved automatic timing are restored. Explicit **Read game clock**
+   its saved automatic timing is restored. Explicit **Read game clock**
    must run a fresh analysis. Test loading/postgame footage and short clips. After
    one readable adjacent tick is found, the reader must stop without checking
    later clocks for consistency. Confirm manual timing corrections still work.
@@ -125,7 +125,7 @@ does not establish successful Windows startup or audio output.
     newer manual choice. Upgrade disposable libraries from versions 1–5 and check
     that existing offsets, corrections, and preferences survive.
 13. Repeat the unwritable-library case for volume, media-folder additions, selected
-    installation, and crops on two recordings. Keep the intended choices visible
+    installation, and track choices on two recordings. Keep the intended choices visible
     while switching/refreshing. Retry in the window and on exit, then restart to
     verify each choice. A delayed older track save must not replace a newer choice.
 14. Open a large recording and close before identification completes, with and

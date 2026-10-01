@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -65,10 +67,12 @@ describe.skipIf(!existsSync('resources/ocr/verified.json'))('packaged offline cl
     await build({ entryPoints: [resolve('src/analysis/decoder-entry.ts')], outfile: decoderPath, bundle: true, platform: 'node', format: 'cjs' });
     const decoder = new DecoderQueue(decoderPath, process.env.COMMS_TEST_FFMPEG!);
     const reader = new OcrReader(workerPath, resolve('resources/ocr'));
-    const path = resolve('tests/fixtures/ocr/clock-video.mkv');
+    const path = join(folder, 'top-right clock.mkv');
+    await promisify(execFile)(process.env.COMMS_TEST_FFMPEG!, ['-hide_banner', '-loglevel', 'error', '-i', resolve('tests/fixtures/ocr/clock-video.mkv'),
+      '-t', '4', '-vf', 'scale=68:26:flags=lanczos,pad=1920:1080:1852:0:color=0x111827', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-threads', '1', '-output_ts_offset', '5', path]);
     try {
       const result = await new VideoClockAnalyzer(decoder, reader).analyze({ path, version: await fileVersion(path), streamIndex: 0, originSeconds: 5,
-        startSeconds: 0, endSeconds: 130, crop: { x: 0, y: 0, width: 1, height: 1 },
+        startSeconds: 0, endSeconds: 4,
       });
       expect(result.fit.status, JSON.stringify(result.fit)).toBe('accepted');
       if (result.fit.status !== 'accepted') throw new Error('Expected synthetic fit');

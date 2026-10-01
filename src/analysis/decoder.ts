@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileVersion } from '../library/identity';
 import { sameFileVersion } from '../library/model';
-import { decodeRequestSchema, frameSchema, waveformSchema, type DecodeRequest, type DecodeResult, type FrameRequest, type PreviewFrame, type WaveformChunk, type WaveformPeak, type WaveformRequest } from '../shared/analysis';
+import { decodeRequestSchema, frameSchema, waveformSchema, type DecodeRequest, type DecodeResult, type FrameRequest, type DecodedFrame, type WaveformChunk, type WaveformPeak, type WaveformRequest } from '../shared/analysis';
 import { frameMediaTime } from '../shared/media';
 
 /** Runs inside a worker. Native decoding and streamed metadata keep memory bounded. */
@@ -21,14 +21,13 @@ export class MediaDecoder {
     return ['-hide_banner', '-nostdin', '-nostats', '-loglevel', 'info', '-threads', '1', '-filter_threads', '1', '-copyts',
       ...(absolutePts > 0 ? ['-noaccurate_seek', '-seek_timestamp', '1', '-ss', absolutePts.toFixed(9)] : []), '-i', resolve(path)];
   }
-  private async frame(request: FrameRequest, signal?: AbortSignal): Promise<PreviewFrame> {
+  private async frame(request: FrameRequest, signal?: AbortSignal): Promise<DecodedFrame> {
     const target = request.positionSeconds + request.originSeconds;
     const crop = request.crop;
-    const scale = request.processing === 'clock' ? ['scale=480:120:force_original_aspect_ratio=decrease', 'format=gray'] : ['scale=1280:720:force_original_aspect_ratio=decrease'];
     // "after" receives a decoded frame's timestamp. Compare integer PTS so
     // decimal rounding cannot return the same frame instead of its successor.
     const select = request.after ? `select=gt(pts\\,round(${target.toFixed(9)}/TB))` : `select=gte(t\\,${target.toFixed(9)})`;
-    const filters = [select, ...(crop ? [`crop=iw*${crop.width}:ih*${crop.height}:iw*${crop.x}:ih*${crop.y}`] : []), ...scale, 'showinfo'];
+    const filters = [select, `crop=iw*${crop.width}:ih*${crop.height}:iw*${crop.x}:ih*${crop.y}`, 'scale=480:120:force_original_aspect_ratio=decrease', 'format=gray', 'showinfo'];
     let timeBase: number | undefined, pts: number | undefined;
     const png = await this.run([...this.input(request.path, Math.max(0, target - 0.1)), '-map', `0:${request.streamIndex}`, '-an', '-sn', '-dn', '-vf', filters.join(','), '-frames:v', '1', '-fps_mode', 'passthrough', '-c:v', 'png', '-threads', '1', '-f', 'image2pipe', 'pipe:1'], signal, line => {
       if (!line.includes('showinfo')) return;
@@ -36,9 +35,9 @@ export class MediaDecoder {
       if (base && Number(base[2]) > 0) timeBase = Number(base[1]) / Number(base[2]);
       const frame = line.match(/\bn:\s*0\s+pts:\s*(-?\d+)/);
       if (frame && timeBase !== undefined && pts === undefined) pts = Number(frame[1]) * timeBase;
-    }, 8_000_000);
-    if (pts === undefined || png.length < 24 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new Error('No video frame at this position. Choose an earlier point in the recording.');
-    return frameSchema.parse({ kind: 'frame', ptsSeconds: pts, positionSeconds: frameMediaTime(pts, request.originSeconds), width: png.readUInt32BE(16), height: png.readUInt32BE(20), dataUrl: `data:image/png;base64,${png.toString('base64')}` });
+    }, 1_000_000);
+    if (pts === undefined || png.length < 24 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new Error('No video frame at this position.');
+    return frameSchema.parse({ kind: 'frame', ptsSeconds: pts, positionSeconds: frameMediaTime(pts, request.originSeconds), width: png.readUInt32BE(16), height: png.readUInt32BE(20), png });
   }
   private async waveform(request: WaveformRequest, signal?: AbortSignal): Promise<WaveformChunk> {
     const start = request.startSeconds + request.originSeconds, end = request.endSeconds + request.originSeconds;

@@ -8,8 +8,9 @@ import { identifyFile } from '../src/library/identity';
 import { initialSnapshot, type PlaybackCommand, type ProbeSnapshot } from '../src/shared/protocol';
 import type { FileIdentity } from '../src/library/model';
 import type { MediaProbe } from '../src/shared/media';
-import type { VideoClockJobs, VideoClockResult } from '../src/analysis/video-clock';
-import type { ReviewPreview } from '../src/main/preview-session';
+import type { VideoClockJobs, VideoClockRequest, VideoClockResult } from '../src/analysis/video-clock';
+import { GuidedWorkflow } from '../src/main/workflow';
+import { fitClock } from '../src/analysis/clock-fit';
 
 let folder: string;
 beforeEach(async () => { folder = await mkdtemp(join(tmpdir(), 'comms-session-')); });
@@ -479,55 +480,12 @@ class VideoPlayer extends Player {
     return this.snapshot();
   }
 }
-describe('clock preference recovery', () => {
-  it('keeps failed crops for multiple recordings through switches, retry, and restart', async () => {
-    const { media, library } = await fixtures();
-    const other = join(folder, 'another.mkv'); await writeFile(other, 'other video');
-    let currentCrop: Parameters<NonNullable<ReviewPreview['setCrop']>>[0];
-    const preview: ReviewPreview = { clear: () => { currentCrop = undefined; }, select: () => {}, identify: () => {}, updateMedia: () => {}, showFrame: () => {}, selectVideo: () => {}, setCrop: crop => { currentCrop = crop; } };
-    const session = new ReviewSession(library, direct, new VideoPlayer(), () => {}, { inspect: async () => videoProbe }, preview);
-    await session.openMedia(media); await session.settled();
-    const firstHash = session.snapshot().recording!.hash!;
-    const fail = vi.spyOn(library, 'saveClockSelection').mockRejectedValue(new Error('Cannot save crop'));
-    const first = { x: 0.9, y: 0.01, width: 0.1, height: 0.05 }, second = { ...first, y: 0.15 };
-    await session.selectClockRegion(0, first); expect(currentCrop).toEqual(first);
-    await session.openMedia(other); await session.settled();
-    const secondHash = session.snapshot().recording!.hash!;
-    await session.selectClockRegion(0, second);
-    await session.openMedia(media); await session.settled();
-    expect(currentCrop).toEqual(first);
-    expect(session.snapshot().unsavedPreferences).toBe(2);
-    fail.mockRestore(); await session.prepareExit();
-    expect(session.snapshot().saveError).toBeUndefined(); session.close();
-    const restarted = await ReviewLibrary.open(join(folder, 'data'));
-    expect(restarted.snapshot().media[firstHash]?.clockSelection?.crop).toEqual(first);
-    expect(restarted.snapshot().media[secondHash]?.clockSelection?.crop).toEqual(second);
-  });
-
-  it('promotes an unsaved provisional crop and never retries it onto changed contents', async () => {
-    const { media, library } = await fixtures();
-    let complete!: (identity: FileIdentity) => void;
-    const pending = new Promise<FileIdentity>(resolve => { complete = resolve; });
-    const session = new ReviewSession(library, { identify: () => pending }, new VideoPlayer(), () => {}, { inspect: async () => videoProbe });
-    await session.openMedia(media);
-    const fail = vi.spyOn(library, 'saveClockSelection').mockRejectedValue(new Error('Cannot save crop'));
-    const crop = { x: 0.9, y: 0, width: 0.1, height: 0.05 };
-    await session.selectClockRegion(0, crop);
-    const identity = await identifyFile(media); complete(identity); await session.settled();
-    expect(session.snapshot().unsavedPreferences).toBe(1);
-    fail.mockRestore(); await writeFile(media, 'replacement file contents');
-    await session.retrySave();
-    // The preference belongs to the verified old contents, not to the path now.
-    expect(library.snapshot().media[identity.sha256]?.clockSelection?.crop).toEqual(crop);
-    expect(library.cachedIdentity(media, (await identifyFile(media)).version)).toBeUndefined();
-  });
-});
 class ClockJobs implements VideoClockJobs {
-  calls: { signal?: AbortSignal; complete(result: VideoClockResult): void; fail(error: Error): void }[] = [];
+  calls: { request: VideoClockRequest; signal?: AbortSignal; complete(result: VideoClockResult): void; fail(error: Error): void }[] = [];
   private started!: () => void;
   readonly first = new Promise<void>(resolve => { this.started = resolve; });
-  analyze(_request: unknown, signal?: AbortSignal): Promise<VideoClockResult> {
-    return new Promise((complete, fail) => { this.calls.push({ signal, complete, fail }); this.started(); });
+  analyze(request: VideoClockRequest, signal?: AbortSignal): Promise<VideoClockResult> {
+    return new Promise((complete, fail) => { this.calls.push({ request, signal, complete, fail }); this.started(); });
   }
 }
 function clockResult(offsetSeconds = 45): VideoClockResult {
@@ -550,6 +508,43 @@ describe('clock analysis application', () => {
     expect(clocks.calls).toHaveLength(1);
     return { session, player, clocks, library, media };
   }
+  it.each(['unreadable', 'decoder error', 'time limit'])('falls directly back to manual timing after %s without restarting detection', async failure => {
+    const { session, player, clocks } = await setup();
+    const flow = new GuidedWorkflow(), facts = () => ({ ...player.snapshot(), library: session.snapshot() });
+    expect(flow.observe(facts()).state).toBe('alignment.analyzing');
+    if (failure === 'unreadable') clocks.calls[0]!.complete({ fit: fitClock([]), readings: [], framesRead: 60 });
+    else clocks.calls[0]!.fail(new Error(failure));
+    await session.settled();
+    expect(flow.observe(facts())).toMatchObject({ state: 'alignment.manual', primary: 'Use this moment' });
+    expect(session.snapshot().alignment).toBeUndefined();
+    const editor = flow.observe(facts());
+    await session.seekPreview(15); await session.settled();
+    expect(clocks.calls).toHaveLength(1);
+    expect(flow.observe(facts()).editorKey).toBe(editor.editorKey);
+    await session.setManualOffset(3); flow.complete();
+    expect(session.snapshot().alignment?.source).toBe('manual');
+    expect(player.state.offsetSeconds).toBe(3);
+    expect(session.snapshot().clock).toBeUndefined();
+    expect(session.snapshot().boundToRuntime).toBe(false);
+  });
+  it('always uses automatic localization for new analysis, ignoring legacy user-selected clock regions', async () => {
+    const { media, library } = await fixtures();
+    const identity = await identifyFile(media); await library.remember(identity);
+    const data = library.snapshot();
+    Object.assign(data.media[identity.sha256]!, { clockSelection: { videoStreamIndex: 99, crop: { x: 0, y: 0, width: 1, height: 1 }, revision: 10 } });
+    await writeFile(join(folder, 'data', 'library.json'), JSON.stringify(data));
+    const restored = await ReviewLibrary.open(join(folder, 'data')), clocks = new ClockJobs();
+    const session = new ReviewSession(restored, direct, new VideoPlayer(), () => {}, { inspect: async () => videoProbe }, undefined, clocks);
+    await session.openMedia(media); await session.selectTrack(1); await clocks.first;
+    expect(clocks.calls[0]!.request).toMatchObject({ streamIndex: 0, force: false });
+    expect(clocks.calls[0]!.request).not.toHaveProperty('crop');
+    clocks.calls[0]!.complete(clockResult()); await session.settled();
+    await session.analyzeVideo();
+    expect(clocks.calls[1]!.request).toMatchObject({ streamIndex: 0, force: true });
+    expect(clocks.calls[1]!.request).not.toHaveProperty('crop');
+    clocks.calls[1]!.complete(clockResult()); await session.settled();
+    expect(session.snapshot().alignment?.source).toBe('video-clock');
+  });
   it('protects a manual anchor and nudge from a late automatic result', async () => {
     const { session, clocks, player, library } = await setup();
     await session.setManualOffset(12); await session.nudge(0.01);
@@ -582,7 +577,7 @@ describe('clock analysis application', () => {
     const pending = new Promise<FileIdentity>(resolve => { complete = resolve; });
     const session = new ReviewSession(library, { identify: path => path === media ? pending : identifyFile(path) }, new VideoPlayer(), () => {}, { inspect: async () => videoProbe }, undefined, clocks);
     await session.openMedia(media);
-    await session.analyzeVideo(0); session.cancelClock();
+    await session.analyzeVideo(); session.cancelClock();
     clocks.calls[0]!.complete(clockResult()); complete(await identifyFile(media)); await session.settled();
     expect(clocks.calls).toHaveLength(1);
     expect(session.snapshot().alignment).toBeUndefined();
@@ -591,11 +586,11 @@ describe('clock analysis application', () => {
     const { session, clocks, player, library } = await setup();
     clocks.calls[0]!.complete(clockResult()); await session.settled();
     await session.nudge(0.1);
-    await session.analyzeVideo(0);
+    await session.analyzeVideo();
     clocks.calls[1]!.fail(new Error('Clock obscured')); await session.settled();
     expect(player.state.offsetSeconds).toBeCloseTo(45.1);
     expect(session.snapshot().clock?.message).toContain('obscured');
-    await session.analyzeVideo(0);
+    await session.analyzeVideo();
     clocks.calls[2]!.complete(clockResult(46)); await session.settled();
     expect(player.state.offsetSeconds).toBe(46);
     const saved = timing(library, session)!.alignment;
@@ -605,10 +600,10 @@ describe('clock analysis application', () => {
   });
   it('uses the latest analysis request and ignores a result from a previous track', async () => {
     const { session, clocks, player } = await setup();
-    await session.analyzeVideo(0, { x: 0.9, y: 0, width: 0.1, height: 0.1 });
+    await session.analyzeVideo();
     clocks.calls[1]!.complete(clockResult(50)); clocks.calls[0]!.complete(clockResult(80)); await session.settled();
     expect(player.state.offsetSeconds).toBe(50);
-    await session.analyzeVideo(0); await session.selectTrack(2);
+    await session.analyzeVideo(); await session.selectTrack(2);
     clocks.calls[2]!.complete(clockResult(90)); session.cancelClock(); clocks.calls[3]?.complete(clockResult(95)); await session.settled();
     expect(player.state.offsetSeconds).toBeUndefined();
     expect(player.state.media?.selectedTrackId).toBe(2);
@@ -624,7 +619,7 @@ describe('clock analysis application', () => {
   it('refuses to apply clock results after source content changes', async () => {
     const { session, clocks, player, media } = await setup();
     clocks.calls[0]!.complete(clockResult()); await session.settled();
-    await session.analyzeVideo(0); await writeFile(media, 'changed video content');
+    await session.analyzeVideo(); await writeFile(media, 'changed video content');
     clocks.calls[1]!.complete(clockResult(80)); await session.settled();
     expect(player.state.offsetSeconds).toBe(45);
     expect(session.snapshot().clock?.message).toContain('changed');

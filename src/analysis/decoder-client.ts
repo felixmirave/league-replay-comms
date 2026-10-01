@@ -1,19 +1,19 @@
 import { Worker } from 'node:worker_threads';
-import { frameSchema, waveformSchema, type DecodeRequest, type DecodeResult, type FrameRequest, type PreviewFrame, type WaveformChunk, type WaveformRequest } from '../shared/analysis';
+import { frameSchema, waveformSchema, type DecodeRequest, type DecodeResult, type FrameRequest, type DecodedFrame, type WaveformChunk, type WaveformRequest } from '../shared/analysis';
 
-export interface PreviewDecoder {
-  frame(request: FrameRequest, signal?: AbortSignal): Promise<PreviewFrame>;
+export interface AnalysisDecoder {
+  frame(request: FrameRequest, signal?: AbortSignal): Promise<DecodedFrame>;
   waveform(request: WaveformRequest, signal?: AbortSignal): Promise<WaveformChunk>;
 }
 interface Job { request: DecodeRequest; signal?: AbortSignal; resolve(result: DecodeResult): void; reject(error: Error): void; cancel?: () => void }
 
-/** One native decoder at a time; interactive frames precede background chunks. */
-export class DecoderQueue implements PreviewDecoder {
+/** One native decoder at a time; clock frames precede background waveform chunks. */
+export class DecoderQueue implements AnalysisDecoder {
   private queue: Job[] = [];
   private active?: Worker;
   private closed = false;
   constructor(private readonly workerPath: string, private readonly executable: string) {}
-  frame(request: FrameRequest, signal?: AbortSignal): Promise<PreviewFrame> { return this.submit(request, signal) as Promise<PreviewFrame>; }
+  frame(request: FrameRequest, signal?: AbortSignal): Promise<DecodedFrame> { return this.submit(request, signal) as Promise<DecodedFrame>; }
   waveform(request: WaveformRequest, signal?: AbortSignal): Promise<WaveformChunk> { return this.submit(request, signal) as Promise<WaveformChunk>; }
   async close(): Promise<void> {
     this.closed = true;
@@ -31,7 +31,7 @@ export class DecoderQueue implements PreviewDecoder {
       job.cancel = () => { const index = this.queue.indexOf(job); if (index !== -1) { this.queue.splice(index, 1); signal?.removeEventListener('abort', job.cancel!); reject(new Error('Preview analysis cancelled')); } };
       signal?.addEventListener('abort', job.cancel, { once: true });
       this.queue.push(job);
-      const priority = (job: Job) => job.request.kind === 'waveform' ? 2 : job.request.processing === 'clock' ? 1 : 0;
+      const priority = (job: Job) => job.request.kind === 'waveform' ? 1 : 0;
       this.queue.sort((a, b) => priority(a) - priority(b));
       this.drain();
     });

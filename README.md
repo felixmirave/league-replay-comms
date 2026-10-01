@@ -20,15 +20,15 @@ Media import probes audio/video streams and preserves their timestamp origins.
 When track duration is missing, a cancellable background packet scan determines
 audio bounds while preview remains available. Probed information is cached with
 the recording identity; following stays silent outside the selected track.
-Waveform seeking and timestamped video stills support manual alignment. Drag over
-a still to select the clock region when automatic localization fails. Derived
-waveforms are cached separately from saved offsets and can be regenerated.
-The selected pair of clock frames is cached by recording contents; its midpoint
-is recomputed when reused. The selected video stream and clock
-crop survive restarts, including when the clock cannot be read.
+Automatic detection reads the game clock in the top-right corner of the video.
+If it cannot read a usable clock tick, the app opens manual alignment directly.
+Use audio preview, waveform seeking, and matching timestamps or paused playheads;
+there are no video-frame or clock-region selection steps. Derived waveforms are
+cached separately from saved offsets and can be regenerated. The selected pair of
+clock frames is cached by recording contents; its midpoint is recomputed when reused.
 
 Unsaved alignment changes remain attached to their recording and audio track when
-you switch views. Recording/track choices, clock regions, volume, media
+you switch views. Recording/track choices, volume, media
 folders, and installation selection also retain failed saves for retry. A saved
 recording and track can be restored before an alignment has been set; following
 still requires alignment. If a save fails, retry pending changes from the review
@@ -115,10 +115,11 @@ exits cleanly. It also requires a desktop session.
 When `COMMS_TEST_FFMPEG` is provided (or bundled FFmpeg is available on Windows),
 the review test also imports a generated POV video, resolves missing track timing
 in the background, seeks using the canonical timeline, and verifies its cache,
-waveform, decoded still, crop selection, and manual frame timestamp selection.
-With prepared OCR resources, it also reads a generated clock video, cancels an
-analysis through a manual edit, re-runs with a selected crop, and checks
-automatic midpoint alignment and saved timing/crop restoration after rename.
+waveform, and manual playhead timestamp selection. Failed detection must open the
+manual editor without frame or crop controls. With prepared OCR resources, it also
+reads a generated top-right clock, cancels an analysis through a manual edit,
+re-runs detection, and checks automatic midpoint alignment and saved timing
+restoration after rename.
 It also blocks a library write, cancels a window-close attempt with unsaved changes,
 then restores the destination and verifies successful saving.
 Setup checks use a synthetic installation to verify config detection and refresh
@@ -205,14 +206,14 @@ are secondary; there is no replay-file picker or replay confirmation step.
 2. **Choose recording**, drop an audio/video file, or reopen a recent recording.
    Saved track and timing are restored by content hash, including after a rename.
    Choose the comms track only when multiple tracks need a choice.
-3. For video, the app reads the game clock. If localization fails, select the
-   clock area on a clear frame and choose **Read this clock**, or align manually.
+3. For video, the app reads the game clock in the top-right corner. If detection
+   fails, it opens **Match one moment** for manual alignment.
    A readable tick automatically sets the timing. Recordings can start late or
    end early. **Adjust timing** offers manual corrections; playback starts only
    when you select **Start listening**.
 4. For manual alignment, pause League and the recording at the same moment and
    select **Use this moment**. You can instead enter both timestamps. Waveform
-   seeking and video stills help find the moment. **More timing options** includes
+   seeking and audio preview help find the moment. **More timing options** includes
    a direct offset (`recording seconds − game seconds`). Fine adjustments are
    saved separately from the base offset. Changes stay in the editor until saved;
    **Cancel changes** restores the saved timing.

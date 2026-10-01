@@ -1,13 +1,12 @@
 import { basename } from 'node:path';
 import { fileVersion } from '../library/identity';
-import { sameFileVersion, type Alignment, type ClockSelection, type FileIdentity, type FileVersion } from '../library/model';
+import { sameFileVersion, type Alignment, type FileIdentity, type FileVersion } from '../library/model';
 import { ReviewLibrary } from '../library/library';
 import { relocateFile } from '../library/relocation';
 import type { LibraryView, PlaybackCommand, ProbeSnapshot } from '../shared/protocol';
 import type { MediaProber } from '../analysis/probe';
 import { streamRange, type MediaProbe } from '../shared/media';
 import type { ReviewPreview } from './preview-session';
-import type { Crop } from '../shared/geometry';
 import type { VideoClockJobs } from '../analysis/video-clock';
 import { AlignmentEdits } from './alignment-edits';
 import { PreferenceEdits } from './preference-edits';
@@ -20,7 +19,7 @@ export class ReviewSession {
   private view: LibraryView;
   private runtimeId?: string;
   private recentId?: string;
-  private media?: { path: string; version: FileVersion; hash?: string; importId?: string; trackKey: string; preferenceRevision: number; trackChosen: boolean; probe?: MediaProbe; clockSelection?: ClockSelection };
+  private media?: { path: string; version: FileVersion; hash?: string; importId?: string; trackKey: string; preferenceRevision: number; trackChosen: boolean; probe?: MediaProbe };
   private alignment?: Alignment;
   private mediaEpoch = 0;
   private mediaAbort?: AbortController;
@@ -98,17 +97,10 @@ export class ReviewSession {
   }); }
 
   openMedia(path: string): Promise<void> { return this.mutate(() => this.loadMedia(path)); }
-  analyzeVideo(streamIndex: number, crop?: Crop): Promise<void> { return this.mutate(async () => { this.beginVideoAnalysis(streamIndex, crop); }); }
-  selectClockRegion(streamIndex: number, crop?: Crop): Promise<void> { return this.mutate(async () => {
-    if (!this.media?.probe?.streams.some(stream => stream.type === 'video' && stream.index === streamIndex)) throw new Error('Unknown video stream');
-    this.cancelClock();
-    await this.rememberClockRegion(streamIndex, crop);
-    this.applyClockRegion();
-  }); }
+  analyzeVideo(): Promise<void> { return this.mutate(async () => { this.beginVideoAnalysis(); }); }
   cancelClock(notify = true): void { this.clockAbort?.abort(); this.clockSequence++; this.view.clock = undefined; if (notify) this.changed(); }
   seekPreview(positionSeconds: number): Promise<void> { return this.mutate(async () => {
-    try { await this.playback.send({ type: 'seek-preview', positionSeconds }); }
-    finally { this.previews?.showFrame(positionSeconds); }
+    await this.playback.send({ type: 'seek-preview', positionSeconds });
   }); }
   setManualOffset(offsetSeconds: number, correctionSeconds = 0): Promise<void> { return this.mutate(() => this.manualOffset(offsetSeconds, correctionSeconds)); }
   alignHere(): Promise<void> { return this.mutate(async () => {
@@ -209,12 +201,8 @@ export class ReviewSession {
       if (!track) this.view.error = 'The saved audio track is unavailable. Choose a track and check its alignment.';
       else { restoredTrack = true; if (track.id !== opened.media.selectedTrackId) opened = await this.playback.send({ type: 'track', trackId: track.id }); }
     }
-    const savedClock = cachedIdentity && this.library.snapshot().media[cachedIdentity.sha256]?.clockSelection;
-    const clockSelection = this.preferences.clockSelection({ path, version, hash: cachedIdentity?.sha256, importId: provisional.id },
-      [provisional.clockSelection, savedClock].filter((value): value is ClockSelection => !!value).sort((a, b) => b.revision - a.revision)[0]);
-    this.media = { path, version, importId: provisional.id, trackKey: this.trackKey(opened), preferenceRevision: this.library.nextAlignmentRevision(), trackChosen: restoredTrack || opened.media!.tracks.length === 1, probe, clockSelection };
+    this.media = { path, version, importId: provisional.id, trackKey: this.trackKey(opened), preferenceRevision: this.library.nextAlignmentRevision(), trackChosen: restoredTrack || opened.media!.tracks.length === 1, probe };
     this.previews?.select({ path, version, hash: cachedIdentity?.sha256, media: opened.media! });
-    this.applyClockRegion();
     await this.restoreTiming();
     await this.saveTrackPreference().catch(() => undefined);
     this.view.status = 'Identifying recording in the background…'; this.changed();
@@ -244,10 +232,6 @@ export class ReviewSession {
           }
         }
         this.background(this.clocks?.identify?.(provisional.id, identity) ?? Promise.resolve(), () => false);
-        const savedSelection = this.preferences.clockSelection(this.media!, this.library.snapshot().media[identity.sha256]?.clockSelection);
-        if ((this.media!.clockSelection?.revision ?? -1) > (savedSelection?.revision ?? -1)) await this.saveClockRegion();
-        else this.media!.clockSelection = savedSelection;
-        this.applyClockRegion();
         this.previews?.identify(identity.sha256);
         this.view.recording = { path: identity.path, hash: identity.sha256, progress: 1 };
         if (this.alignment) await this.persistAlignment(); else await this.restoreTiming();
@@ -290,20 +274,20 @@ export class ReviewSession {
     // Restore recording timing before initial automation can replace anything.
     if (!this.initialClock || this.initialClock.mediaEpoch !== this.mediaEpoch || this.initialClock.sequence !== this.clockSequence || !this.media?.hash
       || !this.media.trackChosen || this.view.alignmentConflict || this.alignment || this.view.clock || !this.clocks || this.playback.snapshot().media?.originSeconds === undefined) return;
-    const video = this.media.probe?.streams.find(stream => stream.type === 'video' && (this.media!.clockSelection === undefined || stream.index === this.media!.clockSelection.videoStreamIndex));
-    if (video) this.beginVideoAnalysis(video.index, this.media.clockSelection?.crop, false);
+    if (this.media.probe?.streams.some(stream => stream.type === 'video')) this.beginVideoAnalysis(false);
   }
-  private beginVideoAnalysis(streamIndex: number, crop?: Crop, force = true): void {
+  private beginVideoAnalysis(force = true): void {
     const media = this.media, opened = this.playback.snapshot().media;
-    const video = media?.probe?.streams.find(stream => stream.type === 'video' && stream.index === streamIndex);
+    const video = media?.probe?.streams.find(stream => stream.type === 'video');
     if (!this.clocks || !media || !opened || !video || opened.originSeconds === undefined) throw new Error('Open a video recording with usable timestamps first');
+    const streamIndex = video.index;
     this.cancelClock(false);
     const abort = this.clockAbort = new AbortController();
     const sequence = this.clockSequence, mediaEpoch = this.mediaEpoch, revision = this.alignment?.revision;
     const current = () => !this.closed && !abort.signal.aborted && sequence === this.clockSequence && mediaEpoch === this.mediaEpoch && revision === this.alignment?.revision && media.trackKey === this.media?.trackKey;
     const originSeconds = opened.originSeconds;
     const range = streamRange(video, media.probe!, originSeconds);
-    const request = { path: media.path, version: media.version, hash: media.hash, importId: media.importId, force, streamIndex, originSeconds, crop,
+    const request = { path: media.path, version: media.version, hash: media.hash, importId: media.importId, force, streamIndex, originSeconds,
       startSeconds: range?.startSeconds ?? Math.max(0, (video.startPtsSeconds ?? originSeconds) - originSeconds), endSeconds: Math.min(opened.durationSeconds, range?.endSeconds ?? opened.durationSeconds) };
     this.view.clock = { status: 'running', message: 'Finding the recorded game clock…', framesRead: 0 }; this.changed();
     const operation = this.clocks.analyze(request, abort.signal, progress => {
@@ -315,7 +299,6 @@ export class ReviewSession {
       if (!sameFileVersion(media.version, await fileVersion(media.path))) throw new Error('Recording changed during clock analysis. Reopen it.');
       if (!current()) return;
       const fit = result.fit;
-      if (result.crop) { await this.rememberClockRegion(streamIndex, result.crop); if (!current()) return; this.applyClockRegion(); }
       if (fit.status === 'needs-attention') this.view.clock = { status: fit.status, message: fit.message, framesRead: result.framesRead };
       else {
         this.view.clock = { status: fit.status, framesRead: result.framesRead, offsetSeconds: fit.offsetSeconds, uncertaintySeconds: fit.uncertaintySeconds,
@@ -333,22 +316,6 @@ export class ReviewSession {
       this.view.clock = { status: 'needs-attention', message: error instanceof Error ? error.message : String(error), framesRead: this.view.clock?.framesRead ?? 0 }; this.changed();
     });
     this.background(operation, current);
-  }
-  private async rememberClockRegion(videoStreamIndex: number, crop?: Crop): Promise<void> {
-    if (!this.media) return;
-    this.media.clockSelection = { videoStreamIndex, crop, revision: this.library.nextAlignmentRevision() };
-    await this.saveClockRegion();
-  }
-  private async saveClockRegion(): Promise<void> {
-    if (!this.media?.clockSelection) return;
-    try { await this.preferences.saveClock(this.media, this.media.clockSelection); }
-    catch { /* Retain the choice for retry and keep preview/analysis available. */ }
-    this.changed();
-  }
-  private applyClockRegion(): void {
-    const selection = this.media?.clockSelection;
-    if (!selection || !this.media?.probe?.streams.some(stream => stream.type === 'video' && stream.index === selection.videoStreamIndex)) return;
-    this.previews?.selectVideo?.(selection.videoStreamIndex); this.previews?.setCrop?.(selection.crop);
   }
   private async restoreRecording(): Promise<void> {
     const data = this.library.snapshot(), id = this.recentId;
@@ -389,10 +356,6 @@ export class ReviewSession {
     this.alignment = [draft, pending, saved?.alignment].filter((value): value is Alignment => !!value).sort((a, b) => b.revision - a.revision)[0];
     if (this.alignment) {
       this.cancelClock();
-      if (!this.media.clockSelection && this.alignment.clock && this.media.probe?.streams.some(stream => stream.type === 'video' && stream.index === this.alignment!.clock!.videoStreamIndex)) {
-        this.previews?.selectVideo?.(this.alignment.clock.videoStreamIndex);
-        this.previews?.setCrop?.(this.alignment.clock.crop);
-      }
       await this.applyAlignment();
     }
     this.changed();

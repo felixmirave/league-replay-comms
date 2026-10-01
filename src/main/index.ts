@@ -213,20 +213,9 @@ const startupTask = app.whenReady().then(async () => {
     }
     else if (command.type === 'retry-save') await review.retrySave();
     else if (command.type === 'seek-preview') await review.seekPreview(command.positionSeconds);
-    else if (command.type === 'preview-frame') {
+    else if (command.type === 'analyze-clock') {
       await request({ type: 'preview', paused: true });
-      previews?.showFrame(command.positionSeconds);
-    } else if (command.type === 'preview-video') {
-      await request({ type: 'preview', paused: true }); await review.selectClockRegion(command.streamIndex);
-    } else if (command.type === 'preview-crop') {
-      const stream = previews?.snapshot().videoStreamIndex;
-      if (stream === undefined) throw new Error('Open a video recording first');
-      await request({ type: 'preview', paused: true }); await review.selectClockRegion(stream, command.crop);
-    } else if (command.type === 'analyze-clock') {
-      const preview = previews?.snapshot();
-      if (preview?.videoStreamIndex === undefined) throw new Error('Open a video recording first');
-      await request({ type: 'preview', paused: true });
-      workflow.complete(); await review.analyzeVideo(preview.videoStreamIndex, preview.crop);
+      workflow.complete(); await review.analyzeVideo();
     } else if (command.type === 'cancel-clock') {
       workflow.send('edit', publishedSnapshot()); await review.enterTiming(); publish();
     } else if (command.type === 'waveform-window') previews?.waveformWindow(command.startSeconds, command.endSeconds);

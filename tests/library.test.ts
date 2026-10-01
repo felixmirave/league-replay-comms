@@ -160,22 +160,41 @@ describe('review library', () => {
     expect(migrated.conflicts).toEqual({});
   });
 
-  it('remembers clock crops before identification and preserves newer content-keyed choices on promotion', async () => {
+  it('drops obsolete crop preferences without losing timing or unfinished edits', async () => {
     const directory = join(folder, 'data'), library = await ReviewLibrary.open(directory);
     const media = await file('clock.mkv', 'clock footage');
+    await library.remember(media);
+    await library.saveAlignment(media.sha256, 'ff:1', alignment(12));
     const pending = await library.beginImport(media.path, media.version);
-    const crop = { x: 0.9, y: 0, width: 0.1, height: 0.05 };
-    await library.saveClockSelection({ importId: pending.id }, { videoStreamIndex: 0, crop, revision: library.nextAlignmentRevision() });
+    await library.savePending(pending.id, { trackKey: 'ff:2', alignment: alignment(25, 2) });
+    const data = library.snapshot();
+    Object.assign(data.media[media.sha256]!, { clockSelection: { videoStreamIndex: 0, crop: { x: 0, y: 0, width: 1, height: 1 }, revision: 99 } });
+    Object.assign(data.pendingImports[pending.id]!, { clockSelection: 'obsolete data is ignored' });
+    await writeFile(join(directory, 'library.json'), JSON.stringify(data));
     const restarted = await ReviewLibrary.open(directory);
+    expect(restarted.warnings).toEqual([]);
+    expect(restarted.snapshot().media[media.sha256]).not.toHaveProperty('clockSelection');
+    expect(restarted.snapshot().pendingImports[pending.id]).not.toHaveProperty('clockSelection');
     await restarted.completeImport(pending.id, media);
-    expect(restarted.snapshot().media[media.sha256]?.clockSelection?.crop).toEqual(crop);
-    const duplicate = await restarted.beginImport(media.path, media.version);
-    await restarted.saveClockSelection({ importId: duplicate.id }, { videoStreamIndex: 0, crop: { ...crop, y: 0.1 }, revision: restarted.nextAlignmentRevision() });
-    await restarted.saveClockSelection({ hash: media.sha256 }, { videoStreamIndex: 2, revision: restarted.nextAlignmentRevision() });
-    await restarted.completeImport(duplicate.id, media);
-    expect(restarted.snapshot().media[media.sha256]?.clockSelection).toMatchObject({ videoStreamIndex: 2 });
-    expect(restarted.snapshot().media[media.sha256]?.clockSelection?.crop).toBeUndefined();
+    const latest = await ReviewLibrary.open(directory);
+    expect(latest.timing(media.sha256, 'ff:1')?.alignment.baseOffsetSeconds).toBe(12);
+    expect(latest.timing(media.sha256, 'ff:2')?.alignment.baseOffsetSeconds).toBe(25);
+    expect(await readFile(join(directory, 'library.json'), 'utf8')).not.toContain('clockSelection');
+  });
 
+  it('migrates old libraries with retired crop preferences and retains automatic timing evidence', async () => {
+    const media = await file('old clock.mkv', 'old clock footage'), { data, key } = oldLibrary(media);
+    const crop = { x: 0, y: 0, width: 1, height: 1 };
+    const saved: Alignment = { ...alignment(25, 15), source: 'video-clock', clock: {
+      crop, videoStreamIndex: 0, originSeconds: 0,
+      evidence: { algorithmVersion: 2, method: 'transition-midpoint', midpointSeconds: 125,
+        before: { mediaSeconds: 124.99, clockSeconds: 99, confidence: 90 }, after: { mediaSeconds: 125.01, clockSeconds: 100, confidence: 90 } },
+    } };
+    data.associations[key]!.alignment = saved;
+    Object.assign(data.media[media.sha256]!, { clockSelection: { videoStreamIndex: 0, crop, revision: 16 } });
+    const migrated = validateLibrary(data);
+    expect(Object.values(migrated.timings)[0]?.alignment).toEqual(saved);
+    expect(migrated.media[media.sha256]).not.toHaveProperty('clockSelection');
   });
 
   it('restores a valid backup after interrupted/corrupt primary writes', async () => {

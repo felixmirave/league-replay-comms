@@ -71,16 +71,26 @@ describe('guided review state machine', () => {
     state.library!.clock = undefined; flow.complete();
     expect(flow.observe(state).state).toBe('ready');
   });
-  it('preserves a crop task while selecting a new region clears old analysis', () => {
-    const flow = new GuidedWorkflow(), state = facts(); recording(state);
+  it.each([true, false])('falls directly back to stable manual timing when clock detection fails (connected: %s)', connected => {
+    const flow = new GuidedWorkflow(), state = facts(connected); recording(state);
+    if (!connected) flow.send('prepare', state);
+    state.library!.clock = { status: 'running', framesRead: 0, message: 'Reading' };
+    expect(flow.observe(state)).toMatchObject({ state: 'alignment.analyzing', primary: undefined });
     state.library!.clock = { status: 'needs-attention', message: 'Clock hidden', framesRead: 4 };
-    expect(flow.observe(state).state).toBe('alignment.crop');
-    state.library!.clock = undefined;
-    expect(flow.observe(state).state).toBe('alignment.crop');
+    const editor = flow.observe(state);
+    expect(editor).toMatchObject({ state: 'alignment.manual', primary: 'Use this moment' });
+    state.library!.clock = undefined; state.connectionError = 'Disconnected';
+    expect(flow.observe(state)).toMatchObject({ state: 'alignment.manual', editorKey: editor.editorKey });
+    state.connectionError = undefined;
+    align(state); flow.complete();
+    expect(flow.observe(state).state).toBe(connected ? 'ready' : 'ready.offline');
+  });
+  it('can retry automatic detection from manual timing and requires Start after success', () => {
+    const flow = new GuidedWorkflow(), state = facts(); recording(state); align(state);
+    flow.send('edit', state); flow.observe(state);
     flow.complete(); state.library!.clock = { status: 'running', framesRead: 0, message: 'Reading' };
     expect(flow.observe(state)).toMatchObject({ state: 'alignment.analyzing', primary: undefined });
-    state.library!.clock = { status: 'accepted', offsetSeconds: 18, framesRead: 80, message: 'Check' };
-    align(state);
+    state.library!.clock = { status: 'accepted', offsetSeconds: 18, framesRead: 12, message: 'Aligned' };
     expect(flow.observe(state)).toMatchObject({ state: 'ready', primary: 'Start listening' });
   });
   it('allows offline preparation, then requires connection and explicit Start', () => {
