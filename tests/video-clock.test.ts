@@ -16,9 +16,9 @@ function analyzer(map: (position: number, request: FrameRequest) => number | und
       const positionSeconds = pts.find(t => request.after ? t > request.positionSeconds + 1e-9 : t >= request.positionSeconds - 1e-9);
       if (positionSeconds === undefined) throw new Error('No video frame at this position.');
       const second = map(positionSeconds, request);
-      return { kind: 'frame', ptsSeconds: positionSeconds + request.originSeconds, positionSeconds, width: 240, height: 90,
+      return { ptsSeconds: positionSeconds + request.originSeconds, positionSeconds, width: 240, height: 90,
         png: Buffer.from(JSON.stringify({ second })) };
-    }, waveform: async () => { throw new Error('Not used'); },
+    },
   };
   const reader: ClockReader = { read: async png => {
     const { second } = JSON.parse(Buffer.from(png).toString());

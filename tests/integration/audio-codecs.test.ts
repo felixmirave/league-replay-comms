@@ -5,8 +5,6 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Ffprobe } from '../../src/analysis/probe';
-import { MediaDecoder } from '../../src/analysis/decoder';
-import { fileVersion } from '../../src/library/identity';
 import { MediaEngine } from '../../src/sync/engine';
 
 const run = promisify(execFile);
@@ -35,7 +33,7 @@ describe.skipIf(!enabled)('compressed audio timing with real priming metadata', 
     { extension: 'mp3', encoder: 'libmp3lame', bitrate: '192k', negativePacket: false },
     { extension: 'm4a', encoder: 'aac', bitrate: '192k', negativePacket: true },
     { extension: 'ogg', encoder: 'libopus', bitrate: '128k', negativePacket: true },
-  ]) it(`keeps ${codec.extension} waveform and precise seeks on the decoded timeline`, async () => {
+  ]) it(`keeps ${codec.extension} precise seeks on the decoded timeline`, async () => {
     const folder = await mkdtemp(join(tmpdir(), 'comms-codec-'));
     const source = join(folder, 'original.wav'), path = join(folder, `encoded.${codec.extension}`);
     const engine = new MediaEngine(process.env.COMMS_TEST_MPV!, resolve('resources/scripts/heartbeat.lua'), 'null');
@@ -54,29 +52,8 @@ describe.skipIf(!enabled)('compressed audio timing with real priming metadata', 
       const opened = await engine.load(path, probe);
       const originSeconds = opened.originSeconds!;
       expect(Number.isFinite(originSeconds)).toBe(true);
-      const stream = probe.streams.find(stream => stream.type === 'audio')!;
-      const version = await fileVersion(path);
-      const decoder = new MediaDecoder(process.env.COMMS_TEST_FFMPEG!);
-      const full = await decoder.decode({ kind: 'waveform', path, version, streamIndex: stream.index, originSeconds,
-        sampleRate, startSeconds: 0, endSeconds: opened.durationSeconds, bucketSeconds: 0.005 });
-      if (full.kind !== 'waveform') throw new Error('Expected a waveform');
       const offset = firstDecodedPts - originSeconds;
-      for (const start of pulses) {
-        const expected = start + offset;
-        const audible = full.peaks.filter(peak => peak[0] > expected - 0.15 && peak[0] < expected + 0.2 && Math.max(-peak[2], peak[3]) > 0.2);
-        expect(audible.length).toBeGreaterThan(6);
-        expect(audible[0]![0]).toBeGreaterThanOrEqual(expected - 0.01);
-        expect(audible[0]![0]).toBeLessThan(expected + 0.04);
-        expect(audible.at(-1)![1]).toBeLessThanOrEqual(expected + 0.09);
-      }
       const target = pulses[1]! + offset + 0.04;
-      const excerpt = await decoder.decode({ kind: 'waveform', path, version, streamIndex: stream.index, originSeconds,
-        sampleRate, startSeconds: target - 0.2, endSeconds: target + 0.2, bucketSeconds: 0.005 });
-      if (excerpt.kind !== 'waveform') throw new Error('Expected a waveform');
-      const fullPulse = full.peaks.filter(peak => peak[0] > target - 0.1 && Math.max(-peak[2], peak[3]) > 0.2);
-      const seekedPulse = excerpt.peaks.filter(peak => Math.max(-peak[2], peak[3]) > 0.2);
-      expect(seekedPulse.length).toBeGreaterThan(6);
-      expect(Math.abs(seekedPulse[0]![0] - fullPulse[0]![0])).toBeLessThanOrEqual(0.006);
       for (const [rate, position] of [[2, target], [0.5, pulses[0]! + offset + 0.04], [1, target]] as const) {
         await engine.rate(rate);
         const sample = await engine.seek(position);

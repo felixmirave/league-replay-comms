@@ -21,7 +21,7 @@ export function fitClock(readings: readonly ClockReading[]): ClockFit {
   if (readings.length !== 2 || !before || !after
     || ![before, after].every(reading => clockReadingSchema.safeParse(reading).success && reading.confidence >= experimentalClockPolicy.minConfidence)
     || after.mediaSeconds <= before.mediaSeconds || after.clockSeconds !== before.clockSeconds + 1) {
-    return { status: 'needs-attention', reason: 'insufficient-evidence', message: 'The game clock could not be read. Match a moment manually to align the comms.' };
+    return { status: 'needs-attention', reason: 'insufficient-evidence', message: 'The game clock could not be read. Adjust the recording offset manually.' };
   }
   const midpointSeconds = (before.mediaSeconds + after.mediaSeconds) / 2;
   return {

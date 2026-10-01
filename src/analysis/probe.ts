@@ -11,7 +11,7 @@ const numeric = z.union([z.string(), z.number()]).optional();
 const rawSchema = z.object({
   format: z.object({ format_name: z.string(), start_time: numeric, duration: numeric }).optional(),
   streams: z.array(z.object({ index: z.number().int().nonnegative(), codec_type: z.string(), codec_name: z.string().optional(),
-    start_time: numeric, duration: numeric, width: z.number().optional(), height: z.number().optional(), sample_rate: numeric, channels: z.number().optional(),
+    start_time: numeric, duration: numeric,
     disposition: z.object({ attached_pic: z.number().optional() }).optional(), tags: z.record(z.string(), z.string()).optional(),
   })).max(256),
 });
@@ -36,8 +36,6 @@ export function parseProbe(raw: unknown): MediaProbe {
       // In ffmpeg's Matroska output this tag is the ending PTS, not a duration
       // relative to the first packet. Validate other muxers with decoded evidence.
       taggedEndPtsSeconds: formats.includes('matroska') && /^Lavc/i.test(tags.encoder ?? '') ? durationTag(tags.duration) : undefined,
-      width: stream.width && stream.width > 0 ? stream.width : undefined, height: stream.height && stream.height > 0 ? stream.height : undefined,
-      sampleRate: number(stream.sample_rate), channels: stream.channels,
     }];
   });
   if (!streams.some(stream => stream.type === 'audio')) throw new Error('Recording contains no playable audio stream');

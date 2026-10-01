@@ -6,8 +6,6 @@ export const mediaStreamSchema = z.object({
   startPtsSeconds: z.number().finite().optional(), durationSeconds: z.number().finite().positive().optional(),
   taggedEndPtsSeconds: z.number().finite().optional(),
   packetRange: z.object({ startPtsSeconds: z.number().finite(), endPtsSeconds: z.number().finite() }).optional(),
-  width: z.number().int().positive().optional(), height: z.number().int().positive().optional(),
-  sampleRate: z.number().int().positive().optional(), channels: z.number().int().positive().optional(),
 });
 export const probeSchema = z.object({
   formats: z.array(z.string()), startPtsSeconds: z.number().finite().optional(), durationSeconds: z.number().finite().positive().optional(),

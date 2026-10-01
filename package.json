@@ -33,6 +33,7 @@
     "smoke:ui": "npm run build && node scripts/smoke-ui.mjs",
     "smoke:driver": "npm run build && node scripts/smoke-driver.mjs",
     "test:review-ui": "npm run build && node scripts/test-review-ui.mjs",
+    "test:timing-ui": "node --test scripts/test-timing-ui.mjs",
     "test:volume-ui": "node --test scripts/test-volume-ui.mjs",
     "test:startup-ui": "npm run build && node --test scripts/test-startup-ui.mjs",
     "check": "npm run typecheck && npm test && npm run build",

@@ -8,6 +8,8 @@ Scope revision, 2026-09-30: the user rejected manual replay-file selection and r
 
 Scope revision, 2026-10-01: retain automatic top-right clock detection and fall directly back to manual anchoring if it fails. Remove video-frame previews and user-selected clock regions. Preserve existing saved alignments and legacy library data.
 
+Scope revision, 2026-10-01: manual anchoring is one editable offset with Back/Forward steps while listening alongside League. Apply and save changes immediately, preserve active listening when opening or closing the editor, and remove waveforms, timestamp-pair anchoring, and independent recording scrubbing. Keep legacy saved offsets and corrections readable.
+
 Implementation order: validate the packaged clock/player integration, complete synchronization and manual review, add the durable recording library, integrate automatic video alignment and guided setup, then validate the release on Windows. The milestones below define deliverables and exit criteria; a described feature is not a claim that it is already implemented.
 
 For implementation, start with the [time model](#5-time-model-and-invariants) and [module interfaces](#4-processes-and-module-interfaces), then follow the [work packages](#implementation-work-packages). The [verification matrix](#13-verification-matrix) defines required coverage. Keep completed work and measured results in [validation status](tests/acceptance/STATUS.md), so this document remains the specification rather than a running test log.
@@ -67,15 +69,13 @@ The [guided UI design](UX_DESIGN.md) specifies the accepted finite-state flow wi
 
 ### Manual alignment and corrections
 
-The alignment view contains a waveform/timeline, recording playback and scrubbing, replay and recording timestamps, timestamp entry, **Align here**, and timing nudges. Use the same manual editor for audio and video, without frame previews or clock-area selection.
+Use one offset field for both audio and video, with **Back 0.1 s** and **Forward 0.1 s** controls. Back decreases the offset and moves the recording backward against League; Forward increases it. Arrow Down/Up also adjust it; Shift uses 1-second steps and Alt uses 0.01-second steps. The [guided design](UX_DESIGN.md#manual-alignment-and-live-corrections) owns the editor layout.
 
-Entering this view suspends following and gives recording playback to preview mode. It must remain possible to audition a recording without a connected replay. It does not pause or seek League automatically.
+The effective mapping remains `recordingSeconds = replaySeconds + offset`. Valid edits apply and persist immediately. Keep local partial input stable across replay updates and delayed acknowledgements. Invalid or out-of-range input never reaches playback. Preserve legacy timing by summing base offset and correction; new manual edits store that single value as the base offset with correction zero.
 
-For **Align here**, the user pauses League at an identifiable moment and finds the corresponding recording position. Use the paused recording playhead and a fresh paused replay observation as the anchor. If either is advancing, require pausing or explicit timestamp entry instead of silently pairing observations from different instants. Timestamp entry supports a known game time even when the viewer is disconnected; following still requires a fresh connected replay and explicit listening intent for the current session.
+Entering and leaving the editor preserves active listening. Start/Stop listening is explicit and available in place. The controller follows replay playback, pauses, and seeks while edits force synchronization to the new offset. Offline entry remains available, but auditioning the adjustment requires a connected replay. Never pause or seek League automatically.
 
-Apply a manual anchor as `baseOffset = recordingSeconds - replaySeconds`, with manual correction reset to zero. **Advance comms by 10 ms** increases the effective offset by 0.010 seconds; **Delay comms by 10 ms** decreases it. Also provide 100 ms steps. This naming describes the heard result and avoids an ambiguous offset sign.
-
-Applying an anchor or correction updates the session immediately. Leaving preview for following performs a fresh synchronization. A late automatic result must never overwrite a manual change. **Re-run automatic alignment** explicitly replaces the effective alignment only after a successful result; preserve the existing alignment if new analysis fails.
+Remove waveform generation, caches, preview IPC, playhead-pair anchoring, and recording seek controls. Audio-track audition remains available when choosing a track. A late automatic result must never overwrite a manual edit. **Read game clock again** in Settings pauses listening and replaces the offset only on success; failure retains accepted timing.
 
 ### Subsequent reviews
 
@@ -95,7 +95,7 @@ src/
   preload/       Narrow, typed renderer interface
   renderer/      Review, alignment, setup, and diagnostics views
   sync/          Utility-process entry, controller, replay and mpv adapters
-  analysis/      Import, frame extraction, OCR, waveform, hashing workers
+  analysis/      Import, clock-frame extraction, OCR, hashing workers
   library/       Records, migrations, identity, persistence, relocation
   platform/      Windows installation/process discovery and config editing
   shared/        Serializable messages, domain records, runtime validation
@@ -132,7 +132,7 @@ Keep each module's interface small. Its implementation owns lifecycle, ordering,
 | Replay connection | Start/stop observations; report capabilities, playback samples, and connection errors | HTTPS trust, validation, polling, request deadlines, process-session changes |
 | Synchronization | Consume timestamped observations and user intents; emit playback actions and status | Clock estimation, state transitions, jump detection, rate correction, recovery |
 | Media engine | Load a track, observe position, pause/resume, set rate, seek, set volume, close | mpv lifecycle, pipe protocol, request IDs, event interpretation, timeouts |
-| Media analysis | Probe, produce waveform/preview, estimate clock alignment, cancel; report progress/evidence | FFmpeg processes, OCR workers, crops, PTS conversion, fitting, cache |
+| Media analysis | Probe, decode clock frames, estimate clock alignment, cancel; report progress/evidence | FFmpeg processes, OCR workers, crops, PTS conversion, fitting, cache |
 | Library | Resolve recording identity/location, restore track/timing, commit alignment, relocate | Streaming hashes, provisional imports, deduplication, migrations, optional automatic match links, crash recovery |
 | League setup | Discover installations, inspect config, enable on explicit user action, verify | Registry/process queries, encoding-preserving edits, backups, concurrent writes, elevation |
 
@@ -172,7 +172,7 @@ Maintain these invariants:
 
 Choose mpv's tested normalized media timeline as the canonical recording coordinate. Explicitly convert FFmpeg frame presentation timestamps into that coordinate. Preserve audio/video relative start times; do not independently reset each stream to zero.
 
-Define that conversion as `mediaSeconds = decodedPtsSeconds - mediaOriginSeconds`, where `mediaOriginSeconds` is the loaded engine's verified timestamp origin. Do not substitute ffprobe's container start time without a format-specific fixture establishing equivalence. Preserve integer PTS and the stream time base through decoding before conversion. The same conversion must drive previews, waveforms, OCR, manual anchors, and playback targets.
+Define that conversion as `mediaSeconds = decodedPtsSeconds - mediaOriginSeconds`, where `mediaOriginSeconds` is the loaded engine's verified timestamp origin. Do not substitute ffprobe's container start time without a format-specific fixture establishing equivalence. Preserve integer PTS and the stream time base through decoding before conversion. The same conversion must drive OCR and playback targets.
 
 Validate conversion with generated files containing nonzero starts, negative preroll, deliberate A/V delay, and variable frame rate. Store the timeline-conversion version with cached analysis. Use actual decoded frame PTS, never frame number divided by nominal FPS or the requested extraction seek time. Track availability may differ from container duration; distinguish unavailable timestamps from a valid zero.
 
@@ -310,13 +310,13 @@ Start with default buffers and tune only when transition measurements justify it
 
 ### Import jobs
 
-Probe with ffprobe for streams, duration, timestamp origins, video dimensions, and audio metadata. Offer track previews when needed. A file without playable audio cannot serve as the comms recording even if its game clock is readable.
+Probe with ffprobe for stream identity, duration, and timestamp origins. Offer track previews when needed. A file without playable audio cannot serve as the comms recording even if its game clock is readable.
 
-Run hashing, waveform generation, and video analysis as cancellable jobs outside the sync process. Playback/manual alignment can begin before hashing or the full waveform finishes. Bound CPU and I/O work, reuse OCR workers, and prioritize playback over cache completion. Changing media/track cancels or invalidates relevant jobs.
+Run hashing and video analysis as cancellable jobs outside the sync process. Playback/manual alignment can begin before hashing finishes. Bound CPU and I/O work, reuse OCR workers, and prioritize playback over cache completion. Changing media/track cancels or invalidates relevant jobs.
 
-Decode sampled windows for OCR. For a waveform, stream selected-track PCM into fixed-resolution min/max buckets instead of retaining full-match PCM in memory. Cache derived data by content identity, stream identity, and algorithm/timeline version. Keep pending-import results provisional until full identity is established.
+Decode bounded grayscale clock crops for OCR. Cache derived data by content identity, stream identity, and algorithm/timeline version. Keep pending-import results provisional until full identity is established.
 
-Begin with one heavy decode/OCR job and one streaming hash job at a time. Treat these as resource limits to measure, not accuracy requirements. Prioritize clock frames over background waveform chunks, limit each job's decoded-frame queue, and cancel obsolete child processes as well as their JavaScript promises. A worker crash or analysis timeout leaves manual review available. Report progress by stage and completed work; do not present a guessed percentage as a measured completion estimate.
+Begin with one heavy decode/OCR job and one streaming hash job at a time. Treat these as resource limits to measure, not accuracy requirements. Limit each job's decoded-frame queue, and cancel obsolete child processes as well as their JavaScript promises. A worker crash or analysis timeout leaves manual review available. Report progress by stage and completed work; do not present a guessed percentage as a measured completion estimate.
 
 ### Clock alignment pipeline
 
@@ -357,7 +357,7 @@ Use the following precedence rules in the session coordinator:
 | Incoming result or action | Required behavior |
 | --- | --- |
 | Verified saved recording/track timing, no newer edit in this session | Restore its selected track, base offset, and correction |
-| Manual anchor or nudge | Apply immediately, persist the intent, and invalidate automatic application from older jobs |
+| Manual offset edit | Apply immediately, persist the intent, and invalidate automatic application from older jobs |
 | Initial OCR result after a saved or manual alignment has been accepted | Retain the accepted alignment; reuse compatible analysis evidence only |
 | Explicit automatic re-run succeeds and its captured revision still matches | Replace the alignment in one commit and clear the previous correction |
 | Explicit automatic re-run fails or becomes obsolete | Retain the accepted alignment and show the result without changing playback |
@@ -430,7 +430,7 @@ For each update, clone the last committed state, apply and validate the transact
 
 Retain failed-to-save drafts by recording/track or provisional-import key across selection changes; a single active-view field is insufficient. Applying the audible change and saving it are independent outcomes: a player error must not discard the edit, and a disk error must not prevent auditioning it. On normal exit, stop accepting edits, silence playback, drain already accepted commands and durable writes, then close workers. If saving still fails, show retry/discard choices rather than silently reporting success. Discard requires an explicit user action; disposable cache completion must not block exit indefinitely.
 
-Include recording/track choices, clock regions, volume, media folders, and installation selection in the same visible save/retry/exit workflow. Keep their latest intended values available after a failed write. Retrying an older preference must retain its original revision so it cannot override a newer alignment or selection. Migrate existing association-based preferences without changing offsets or corrections.
+Include recording/track choices, volume, media folders, and installation selection in the same visible save/retry/exit workflow. Keep their latest intended values available after a failed write. Retrying an older preference must retain its original revision so it cannot override a newer alignment or selection. Migrate existing association-based preferences without changing offsets or corrections.
 
 ## 10. Replay API setup
 
@@ -504,13 +504,13 @@ Exit: the exact artifact starts on a clean Windows machine and measurements esta
 
 Implement controller states, time model, latest-target seeking, pause/rate following, drift correction, stale watchdog, output limits, and preview ownership. Test through the module interface with controllable time, jittered traces, and delayed/out-of-order replies. Integrate the real engine, including compressed seeks and child failures.
 
-Exit: the probe meets measured following/recovery targets through a full replay session and remains responsive under synthetic analysis load. Manual preview and following cannot fight for playback control.
+Exit: the probe meets measured following/recovery targets through a full replay session and remains responsive under synthetic analysis load. Track audition and following cannot fight for playback control; timing edits preserve active following.
 
 ### Milestone 3: complete review workflow
 
 Implement in this order:
 
-1. Import/probing, stream selection, waveform and audio preview, manual anchor/nudge controls, and status/error actions.
+1. Import/probing, stream selection, track audition, live offset controls, and status/error actions.
 2. Recording-based library schema/migrations, background hashing, provisional-import reconciliation, per-track timing, and file relocation; optional automatic replay links only if validated.
 3. Video crop detection, consecutive-frame midpoint alignment, versioned cache, and manual-override protection.
 4. Installation chooser, configuration inspection/edit/backup workflow, restart guidance, and diagnostics view.
@@ -597,7 +597,7 @@ Use these as dependency-ordered implementation tasks. File references identify t
 | 1. Portable foundation | `src/main/`, `src/preload/`, `src/shared/`, `scripts/`, `resources/`: typed IPC, validated commands, one app instance, bundled resources, child ownership, and portable packaging | First. Exact executable launches offline as a standard Windows user; no Node/npm or media-tool installation; owned children stop after exit/crash |
 | 2. Replay observations and identity | `src/sync/replay.ts`, `src/platform/`, `src/main/review-session.ts`: trusted loopback requests, bounded polling, stale detection, runtime generations, listening intent, and optional validated automatic replay discovery | Requires package 1. Current-client traces establish field/seek semantics; recording-only following works without persistent replay identity; changed/ambiguous sessions stop old listening intent without requesting a replay file |
 | 3. Player and synchronization | `src/sync/controller.ts`, `engine.ts`, `mpv-ipc.ts`: canonical timeline, selected-track playback, fresh clock comparison, latest-target recovery, pitch-preserving rates, and preview ownership | Requires packages 1–2. Generated media and real engine tests cover timestamp conversion and stale completions; Windows measurements establish transition and following behavior |
-| 4. Manual review | `src/analysis/`, `src/main/preview-session.ts`, `src/main/review-session.ts`, `src/renderer/`: cancellable probing, track audition, waveform and audio previews, explicit timestamp anchors, and 10/100 ms corrections | Requires package 3. Audio and video can be manually aligned; disconnected preview works; timing nudges have the specified sign; switching sessions cancels obsolete jobs |
+| 4. Manual review | `src/analysis/`, `src/main/review-session.ts`, `src/renderer/`: cancellable probing, track audition and one live offset with keyboard and Back/Forward controls | Requires package 3. Audio and video can be manually aligned; offline entry works; live adjustments have the specified sign; switching sessions cancels obsolete jobs |
 | 5. Durable library | `src/library/`, `src/analysis/hash-*`, `src/main/alignment-edits.ts`, `src/main/quit.ts`: streaming SHA-256, provisional reconciliation, recording/track timing, relocation, legacy migration, optional automatic links, and save-error recovery | Requires packages 2 and 4. Restart, rename, move, duplicate import, changed content, conflicting legacy offsets, failed writes, and exit with unsaved edits preserve recording timing and newest accepted manual intent |
 | 6. Automatic video alignment | `src/analysis/video-clock.ts`, `clock-fit.ts`, `ocr-*`, `src/library/clock-cache.ts`: bounded top-right tick search, consecutive-frame decoding, automatic midpoint alignment, cache validation, and revision-safe application | Requires packages 4–5. Real original-POV/replay pairs establish offset accuracy and false-acceptance behavior; unsupported cases fall back to manual review without changing an accepted alignment |
 | 7. Guided connection setup | `src/platform/`, `src/main/league-setup.ts`, `src/renderer/setup.tsx`, `resources/scripts/`: installation discovery, independent config/connectivity status, scoped enable/restore, backup verification, and permission handling | Discovery starts in package 2; complete alongside packages 4–6. Windows tests cover byte preservation, locks, concurrent changes, elevation accepted/declined, and guarded restore; ordinary review stays unelevated |
@@ -614,7 +614,7 @@ Use deterministic tests for controller decisions and race conditions, real proce
 | Timestamps | VFR, nonzero/negative timestamps, A/V start offsets, codec priming, track playable ranges, recording starting mid-match |
 | OCR | Resolutions/HUD scales, compression, timer rollover, overlays/occlusion, missing clock, wrong digits/crop, loading screens, partial and short recordings, consecutive VFR frames, unreadable intervening frames, immediate acceptance without later checks, bounded search and automatic application |
 | Analysis reuse | Rename/cache hit, obsolete crop preferences removed without losing timing, changed stream/origin/crop/runtime, explicit re-run, corrupt cache, cache write failure, provisional identity completion in either order, source changed during analysis |
-| Manual workflow | Audio-only immediately available, direct video-to-manual fallback without frame/crop controls, timestamp entry, nudge sign, edit during OCR, failed re-run retains alignment, preview/follow transitions |
+| Manual workflow | Audio-only immediately available, direct video-to-manual fallback without frame/crop controls, signed offset entry, live step direction, edit during OCR, failed re-run retains alignment, explicit Start/Stop and Done preserve intent |
 | Library | Restart/upgrade, rename/move/copy/duplicates, missing file, same-name replacement, changed content, interrupted/concurrent hashing, provisional merge, track-specific offsets, interrupted writes/migration recovery, unsaved edits across switches and exit |
 | Setup | Enabled/disabled/missing key, missing section/file, multiple/custom installations, malformed/duplicate config, encodings/line endings, permissions/locks, concurrent edits, elevation declined, backup/readback, enabled config without replay |
 | Package | Offline first launch, standard user, spaces/non-ASCII/long filenames, minimization, concurrent analysis, corrupt/unsupported input, resource discovery, executable update/relaunch |

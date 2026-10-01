@@ -68,9 +68,9 @@ profile paths before acquiring the instance lock or writing library data. Tests
 confirm the paths and keep all review data in a temporary profile. Packaged runs
 do not enable development-only null-output or media-path overrides.
 
-The workflow imports audio and a generated two-track video, checks preview and
-seeking, runs packaged OCR on a synthetic top-right clock, applies its midpoint,
-saves a manual correction, opens the
+The workflow imports audio and a generated two-track video, checks audio-track preview
+and pause, runs packaged OCR on a synthetic top-right clock, applies its midpoint,
+saves a manual offset, opens the
 fixed notice route, and restores track/offset/volume after normal exit and renamed
 recording/executable paths. It checks Unicode paths and renderer isolation. Normal
 shutdown waits for the portable launcher; failures trigger bounded cleanup of

@@ -37,6 +37,20 @@ describe('replay following', () => {
     expect(sync.snapshot().errorSeconds).toBeCloseTo(0);
   });
 
+  it.each([-.1, .1, .01])('applies a live offset change of %s seconds while continuing to follow', change => {
+    const sync = following();
+    sync.update({ type: 'unbind' }, .15);
+    sync.update({ type: 'bind', binding: { replaySessionId: 'match-a', offsetSeconds: 45 + change, startSeconds: 0, endSeconds: 4000 } }, .15);
+    const actions = sync.update({ type: 'replay', sample: replay(.25) }, .25);
+    const seek = actions.find(action => action.type === 'seek');
+    expect(seek).toBeDefined();
+    if (seek?.type !== 'seek') throw new Error('Expected a new seek for the changed offset');
+    expect(seek.targetSeconds).toBeCloseTo(45.25 + change);
+    const completion = sync.update({ type: 'seek-complete', generation: seek.generation, sample: audio(.25, seek.targetSeconds, { paused: true }) }, .25);
+    expect(completion).toContainEqual({ type: 'pause', paused: false });
+    expect(sync.snapshot().state).toBe('following');
+  });
+
   it('stops on a hung replay request without waiting for an error callback', () => {
     const sync = following();
     const actions = sync.update({ type: 'tick' }, 0.401);

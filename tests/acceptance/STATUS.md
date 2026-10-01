@@ -13,10 +13,11 @@ single-transition video alignment. Windows/current-League acceptance remains ope
   their timestamp midpoint, and maps it to the newly displayed game second. It
   supports partial recordings and applies timing automatically without consistency,
   holdout, or phase-calibration gates. Following requires **Start listening**.
-- Audio-only recordings and failed top-right clock detection use manual anchors.
-  Audio preview, waveform seeking, and manual timing corrections remain available;
-  there is no frame viewer or clock-region selector. A late analysis result cannot
-  overwrite newer edits.
+- Audio-only recordings and failed top-right clock detection use one live offset.
+  Type seconds or use Back/Forward while following League. Opening the editor and
+  selecting Done preserve active listening; edits save immediately. Waveform,
+  timestamp-pair, and frame/crop controls are removed. Late analysis cannot overwrite
+  newer edits. Legacy base offsets and corrections still restore their combined value.
 - Schema 6 saves timing by recording SHA-256 and audio track, restores renamed/moved
   files, preserves legacy records, and retains failed edits for retry. Analysis
   version 4 caches the chosen frame pair and invalidates earlier sparse-window caches.
@@ -31,6 +32,17 @@ single-transition video alignment. Windows/current-League acceptance remains ope
 
 The [implementation plan](../../IMPLEMENTATION_PLAN.md) defines requirements; the
 [UI design](../../UX_DESIGN.md) defines the guided flow.
+
+## Manual timing simplification, 2026-10-01
+
+Local Linux validation passed TypeScript checking, the production build, and 227
+Vitest tests with native FFmpeg/ffprobe/mpv enabled (13 optional tests skipped).
+Five Electron timing-control tests cover signed input, keyboard/button steps,
+stale replies, failed saves, and explicit listening intent; seven volume tests
+also passed. The full Electron flow passed import, immediate offset persistence,
+failed-detection fallback, successful OCR, retry, restart, rename, and relocation.
+The full-window run used null audio output; actual League listening and Windows
+acceptance remain open.
 
 ## Validation recorded before repository cleanup
 

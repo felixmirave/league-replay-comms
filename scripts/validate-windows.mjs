@@ -47,6 +47,7 @@ const steps = [
   node('source-smoke', 'scripts/smoke-ui.mjs'),
   node('startup-ui', '--test', 'scripts/test-startup-ui.mjs'),
   node('volume-controls', '--test', 'scripts/test-volume-ui.mjs'),
+  node('timing-controls', '--test', 'scripts/test-timing-ui.mjs'),
   node('debugger-driver', 'scripts/smoke-driver.mjs'),
   node('source-review', 'scripts/test-review-ui.mjs'),
   node('package', 'scripts/package-win.mjs'),

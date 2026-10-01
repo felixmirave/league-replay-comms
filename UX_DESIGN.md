@@ -2,10 +2,10 @@
 
 Implementation: the production window now uses `GuidedWorkflow` in
 `src/main/workflow.ts`. `src/renderer/main.tsx` renders the current task and
-`src/renderer/timing-editor.tsx` retains local timing drafts. Schema 6 persists
+`src/renderer/timing-editor.tsx` retains the offset input during live edits. Schema 6 persists
 recording/track timing without manual replay associations.
 
-Accepted design direction, revised 2026-10-01: no manual replay-file selection or replay-confirmation task. Failed automatic clock detection goes directly to manual alignment, without frame previews or clock-area selection. This specifies the implemented user flow. The [implementation plan](IMPLEMENTATION_PLAN.md) owns playback, recording identity, alignment, and accuracy requirements.
+Accepted design direction, revised 2026-10-01: no manual replay-file selection or replay-confirmation task. Failed automatic clock detection goes directly to one live offset field with Back/Forward controls. There are no waveforms, timestamp pairs, frame previews, or clock-area selection. This specifies the implemented user flow. The [implementation plan](IMPLEMENTATION_PLAN.md) owns playback, recording identity, alignment, and accuracy requirements.
 
 Replace the dashboard with one current task. Show one primary action when the user needs to act, and advance automatically when the application can do the work. Preserve access to changing a choice, cancelling work, and Settings without making them compete with the next step.
 
@@ -44,7 +44,7 @@ flowchart TD
     I --> J{Accepted timing available?}
     J -->|Yes| N[Ready: Start listening]
     J -->|Video needs timing| K[Read video clock automatically]
-    J -->|Audio needs timing| L[Match one moment manually]
+    J -->|Audio needs timing| L[Adjust one offset while listening]
     K -->|Readable adjacent clock tick| N
     K -->|Clock not found or analysis failed| L
     L --> N
@@ -69,8 +69,8 @@ flowchart TD
 | Recording opening | **Opening recording…** | Automatic. File identification runs in the background where safe; do not freeze preview or manual alignment. |
 | Several audio tracks, no saved choice | **Which track has the comms?** Show tracks with short preview controls. | **Use this track**. Selecting a radio item alone does not advance. A single playable track is selected automatically. |
 | Video needs alignment | **Finding the game clock…** | Automatic analysis. **Align manually** remains a secondary escape. |
-| Clock cannot be read or analysis fails | **Match one moment**. Explain briefly that automatic detection failed. | Open manual alignment directly; **Use this moment** saves the anchor. |
-| Audio-only or manual fallback | **Match one moment**. Guide the user through pairing a replay moment and recording position. | **Use this moment**; see the manual flow below. |
+| Clock cannot be read or analysis fails | **Adjust timing**. Explain briefly that automatic detection failed. | Open the live offset editor; **Done** returns to review. |
+| Audio-only or manual fallback | **Adjust timing**. Listen alongside the replay and move the recording back or forward. | **Done**; see the manual flow below. |
 | All playback prerequisites met | **Ready to listen**. Show the recording. “Comms will follow playback, pauses, and jumps in League.” | **Start listening**. Internally attach listening intent to the current viewer generation. Persistent match identity is not required. |
 | Following | **Following League**. Show the replay time, rate, and volume. | No required next action. **Stop listening** is the single prominent control; **Adjust timing** is secondary. |
 
@@ -88,21 +88,17 @@ When two consecutive frames show the game clock advancing one second, map their 
 
 If no readable adjacent tick is found or analysis fails, open manual alignment directly. Do not display video frames or ask the user to select a clock region. Preserve any saved timing when analysis fails. The [implementation plan](IMPLEMENTATION_PLAN.md#clock-alignment-pipeline) defines the midpoint assumption and evidence format.
 
-### Manual audio alignment
+### Manual alignment and live corrections
 
-Keep one task, **Match one moment**, with a short instruction: “Pause League at a moment you can recognize in the recording. Find the same moment below.” Show the paused replay time alongside the recording playhead, waveform, and preview controls. Only the recording is controlled here; the app must not silently pause League.
+**Adjust timing** contains one **Recording offset (seconds)** field. Start at the saved effective offset, including any legacy correction, or zero for an unaligned recording. Positive values start further into the recording; negative values start earlier.
 
-**Use this moment** requires a fresh, paused replay observation and paused recording position. If League is still playing, say **Pause the replay in League**; resume the editor automatically when that condition is met. Preserve the recording playhead and all draft input.
+Place **− Back 0.1 s** and **+ Forward 0.1 s** together below the field. These move the recording backward or forward against the replay. Arrow Down/Up do the same. Shift changes the step to 1 second; Alt changes it to 0.01 seconds. Explain these shortcuts in a quiet hint, without another mode or step selector.
 
-For offline preparation or a known timestamp, **Enter game time instead** reveals a game-time field associated with the selected recording position. Both timestamps remain editable when necessary. Direct numeric offset entry belongs under **More options**, not beside competing methods on the default screen.
+Valid edits apply and save immediately. Keep the field responsive across clock ticks and delayed saves, including incomplete negative or decimal input. Display failed saves with the existing retry flow. Do not show pending writes as failures. There are no waveform, scrubbing, timestamp-pair, or separate correction controls.
 
-A video timer can help find a coarse anchor, but an integer clock display alone does not establish subsecond precision. Keep fine adjustment and actual-event verification available; do not label a manually chosen integer timestamp as a precise automatic result.
+Opening the editor preserves an active listening session. **Start listening / Stop listening** controls replay-following in place; **Done** returns to review without changing that intent. A first offset of zero is valid, but must be accepted before Start or Done. Opening the editor and changing its value never start audio by themselves. Pause and seek League directly.
 
-### Corrections during a review
-
-**Adjust timing** opens the same focused editor and suspends following while preview owns the recording. Preserve the previous alignment as a cancellable draft. Show **Comms earlier** and **Comms later**, defaulting to 100 ms steps; expose 10 ms under fine adjustment. These labels describe the heard effect rather than offset sign.
-
-Use **Save timing** as the editor’s primary action. Returning to Ready exposes **Start listening** or **Resume listening**; saving a draft should not unexpectedly start audio. Cancel restores the previous alignment and also returns paused. Late analysis must never overwrite the user's draft or saved correction.
+Offline users can enter and save the same offset. Explain that connecting to League is required to hear adjustments. A disconnect retains the input and requires an explicit Start after reconnecting. Late automatic results cannot replace accepted manual edits. **Settings → Read game clock again** restarts detection and pauses listening.
 
 ## While listening and recovering
 
@@ -121,7 +117,7 @@ Pause, seeking, resynchronizing, and outside-recording conditions are status var
 | Config busy | Explain which prerequisite is blocking the edit; **Try again** retries only that edit. Do not kill League. |
 | Several configs, malformed config, TLS/protocol failure | Show the specific connection repair/help state. Do not offer an unsafe generic Enable button or pretend no replay is open. |
 | Library save failed | Keep valid in-memory playback usable. Show **Changes not saved** beside review context with a subordinate **Retry saving** action. Do not claim the changes were remembered. At exit, preserve the existing retry/cancel/discard protection. |
-| Slow or failed background identification | Keep preview/manual drafts available. Block only identity-dependent restoration or saving; explain that restriction at the affected action. Never apply an unverified saved association. |
+| Slow or failed background identification | Keep track preview and manual edits available. Block only identity-dependent restoration or saving; explain that restriction at the affected action. Never apply an unverified saved association. |
 
 Errors replace the task's explanation and action only when they prevent that task. Do not collect unrelated errors into a top-of-window wall of messages. Preserve valid input after retry. An unresolved wait gains troubleshooting and a manual-preparation escape; it never reports success merely because time passed.
 
@@ -171,7 +167,7 @@ Implementation rules:
 5. Never silently enable configuration, start audible preview, or begin following because detection completed. Preview and Start listening are explicit user actions.
 6. On Start listening, recheck fresh replay data, playable track bounds, loaded media, accepted alignment, and usable output; bind the submitted listening intent to the current runtime generation. Persistent replay identity is not a guard. Stale buttons cannot bypass these checks.
 7. Retain facts and drafts through local errors; route only to the repair that is now required. Save status and background hash progress are parallel facts, not mandatory wizard steps.
-8. Automatic recovery preserves the user's listening intent only within a still-valid runtime generation. Ambiguous reconnect, explicit Stop, correction editing, or power-session invalidation requires Start/Resume listening again. No manual replay association is introduced during recovery.
+8. Automatic recovery preserves the user's listening intent only within a still-valid runtime generation. Ambiguous reconnect, explicit Stop or power-session invalidation requires Start/Resume listening again. No manual replay association is introduced during recovery.
 
 Shared snapshots expose the workflow view alongside setup, library, analysis, and playback state. Those modules remain responsible for their effects. The recording-based library migration removes the persisted replay requirement; this is implemented beyond the renderer.
 
@@ -179,7 +175,7 @@ Shared snapshots expose the workflow view alongside setup, library, analysis, an
 
 1. Add the workflow transition/presentation module and event contract. Define all required repairs and guard ordering before wiring screens.
 2. Replace the permanent renderer panels with the task frame. Connect setup and runtime detection, preserving explicit edit permissions and backups. Remove manual replay commands and following's dependency on a persisted replay hash.
-3. Migrate recording/track timing and recent recordings, preserving conflicting legacy offsets for checking. Add restoration/import/track tasks, then reuse waveform and audio preview controls inside the alignment editor. Apply detected midpoint timing automatically; keep manual corrections in a cancellable draft.
+3. Migrate recording/track timing and recent recordings, preserving conflicting legacy offsets for checking. Add restoration/import/track tasks, then expose one live offset with Back/Forward controls. Apply detected midpoint timing automatically; save manual edits immediately.
 4. Add the compact listening screen, contextual recovery, Settings, and offline preparation. Update the review automation to drive user tasks rather than old panel labels.
 5. Exercise transitions and real UI paths; then observe unfamiliar players completing a first video review, returning review, audio-only alignment, and missing-file recovery without coaching.
 

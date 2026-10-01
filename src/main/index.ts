@@ -8,8 +8,6 @@ import { HashWorkers } from '../analysis/hash-client';
 import { ReviewSession } from './review-session';
 import { Ffprobe } from '../analysis/probe';
 import { DecoderQueue } from '../analysis/decoder-client';
-import { PreviewSession } from './preview-session';
-import { AnalysisCache } from '../library/analysis-cache';
 import { OcrReader } from '../analysis/ocr-client';
 import { VideoClockAnalyzer } from '../analysis/video-clock';
 import { CachedClockAnalysis } from '../analysis/cached-clock';
@@ -44,7 +42,6 @@ let heartbeat: ReturnType<typeof setInterval> | undefined;
 let review: ReviewSession | undefined;
 let hashes: HashWorkers | undefined;
 let library: ReviewLibrary | undefined;
-let previews: PreviewSession | undefined;
 let decoders: DecoderQueue | undefined;
 let clockReader: OcrReader | undefined;
 let clockAnalysis: CachedClockAnalysis | undefined;
@@ -79,7 +76,6 @@ function publishedSnapshot(): ProbeSnapshot {
   return { ...value, workflow: workflow.observe(value) };
 }
 function publish(): void { if (window && !window.isDestroyed()) window.webContents.send('review:snapshot', publishedSnapshot()); }
-function publishPreview(): void { if (window && !window.isDestroyed() && previews) window.webContents.send('review:preview', previews.snapshot()); }
 
 app.on('second-instance', () => { window?.restore(); window?.focus(); });
 async function initialize(resources: string): Promise<void> {
@@ -124,7 +120,6 @@ async function initialize(resources: string): Promise<void> {
   hashes = new HashWorkers(join(__dirname, '../analysis/hash-entry.cjs'));
   const decoderPath = join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/ffmpeg.exe' : 'linux-x64/ffmpeg');
   decoders = new DecoderQueue(join(__dirname, '../analysis/decoder-entry.cjs'), decoderPath);
-  previews = new PreviewSession(decoders, new AnalysisCache(join(app.getPath('userData'), 'cache', 'waveforms')), publishPreview);
   clockReader = new OcrReader(join(__dirname, '../analysis/ocr-entry.cjs'), join(resources, 'ocr'));
   const runtimeId = await clockRuntimeId(resources, decoderPath);
   if (preparingExit) return;
@@ -137,7 +132,7 @@ async function initialize(resources: string): Promise<void> {
       publish();
       return state;
     },
-  }, publish, new Ffprobe(join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/ffprobe.exe' : 'linux-x64/ffprobe')), previews, clockAnalysis, preferences);
+  }, publish, new Ffprobe(join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/ffprobe.exe' : 'linux-x64/ffprobe')), clockAnalysis, preferences);
 }
 
 const startupTask = app.whenReady().then(async () => {
@@ -156,7 +151,6 @@ const startupTask = app.whenReady().then(async () => {
   window.on('close', event => { event.preventDefault(); void quit.request(); });
 
   ipcMain.handle('review:snapshot', event => { verifySender(event); return publishedSnapshot(); });
-  ipcMain.handle('review:preview', event => { verifySender(event); return previews?.snapshot() ?? { revision: 0, mediaGeneration: 0 }; });
   ipcMain.handle('review:command', (event, raw: unknown) => {
     verifySender(event);
     if (preparingExit) throw new Error('The application is saving before closing. Cancel closing to keep reviewing.');
@@ -174,10 +168,10 @@ const startupTask = app.whenReady().then(async () => {
     if (!review) throw new Error('The saved library is unavailable. Resolve the library error and restart the application.');
     if (command.type === 'workflow') {
       workflow.send(command.action, publishedSnapshot());
-      if (command.action === 'edit' || command.action === 'cancel-edit') await review.enterTiming();
-      else if (command.action !== 'prepare' && snapshot.media) await review.stop();
+      if (command.action === 'edit') await review.enterTiming();
+      else if (command.action !== 'prepare' && command.action !== 'finish-edit' && snapshot.media) await review.stop();
       publish();
-    } else if (command.type === 'stop') { await review.stop(); workflow.complete(); publish(); }
+    } else if (command.type === 'stop') { await review.stop(); publish(); }
     else if (command.type === 'setup-refresh') await setup?.refresh();
     else if (command.type === 'setup-enable') await setup?.enable(command.path);
     else if (command.type === 'setup-restore') await setup?.restore(command.path, command.backupId);
@@ -201,24 +195,19 @@ const startupTask = app.whenReady().then(async () => {
       if (!isAbsolute(command.path)) throw new Error('Drop a file from this computer.');
       workflow.complete(); await review.openMedia(command.path);
     } else if (command.type === 'select-recording') { workflow.complete(); await review.selectRecording(command.id); }
-    else if (command.type === 'align') { await review.setManualOffset(command.offsetSeconds, command.correctionSeconds); workflow.complete(); publish(); }
-    else if (command.type === 'align-here') { await review.alignHere(); workflow.complete(); publish(); }
-    else if (command.type === 'nudge') await review.nudge(command.deltaSeconds);
+    else if (command.type === 'align') { await review.setManualOffset(command.offsetSeconds); publish(); }
     else if (command.type === 'track') { await review.selectTrack(command.trackId); workflow.complete(); publish(); }
     else if (command.type === 'preview-track') { await review.selectTrack(command.trackId, false); await request({ type: 'preview', paused: false }); }
     else if (command.type === 'volume') await review.setVolume(command.volume);
     else if (command.type === 'follow') {
-      if (publishedSnapshot().workflow?.state !== 'ready') throw new Error('Finish the current step before listening.');
+      if (!['ready', 'alignment.manual'].includes(publishedSnapshot().workflow!.state)) throw new Error('Finish the current step before listening.');
       await review.follow(); publish();
     }
     else if (command.type === 'retry-save') await review.retrySave();
-    else if (command.type === 'seek-preview') await review.seekPreview(command.positionSeconds);
     else if (command.type === 'analyze-clock') {
-      await request({ type: 'preview', paused: true });
+      await review.stop();
       workflow.complete(); await review.analyzeVideo();
-    } else if (command.type === 'cancel-clock') {
-      workflow.send('edit', publishedSnapshot()); await review.enterTiming(); publish();
-    } else if (command.type === 'waveform-window') previews?.waveformWindow(command.startSeconds, command.endSeconds);
+    }
     else if (command.type === 'add-media-folder') {
       const selected = await dialog.showOpenDialog(window!, { properties: ['openDirectory'], title: 'Choose a folder to search for moved recordings' });
       if (!selected.canceled && selected.filePaths[0]) await review.addFolder(selected.filePaths[0]);
@@ -275,9 +264,9 @@ const quit = new QuitCoordinator({
   failed: error => { startupError = `Could not finish closing: ${error instanceof Error ? error.message : String(error)}`; publish(); },
   finish: async () => {
     // Durable edits have been saved or explicitly discarded before any deadline.
-    review?.close(); previews?.close(); setup?.close(); clearInterval(heartbeat);
+    review?.close(); setup?.close(); clearInterval(heartbeat);
     const fallback = setTimeout(() => { worker?.kill(); app.exit(); }, 2500);
-    await Promise.allSettled([request({ type: 'close' }), hashes?.close(), decoders?.close(), clockReader?.close(), clockAnalysis?.flush(), previews?.settled(), library?.flush()]);
+    await Promise.allSettled([request({ type: 'close' }), hashes?.close(), decoders?.close(), clockReader?.close(), clockAnalysis?.flush(), library?.flush()]);
     clearTimeout(fallback); app.exit();
   },
 });

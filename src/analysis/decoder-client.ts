@@ -1,20 +1,17 @@
 import { Worker } from 'node:worker_threads';
-import { frameSchema, waveformSchema, type DecodeRequest, type DecodeResult, type FrameRequest, type DecodedFrame, type WaveformChunk, type WaveformRequest } from '../shared/analysis';
+import { frameSchema, type FrameRequest, type DecodedFrame } from '../shared/analysis';
 
 export interface AnalysisDecoder {
   frame(request: FrameRequest, signal?: AbortSignal): Promise<DecodedFrame>;
-  waveform(request: WaveformRequest, signal?: AbortSignal): Promise<WaveformChunk>;
 }
-interface Job { request: DecodeRequest; signal?: AbortSignal; resolve(result: DecodeResult): void; reject(error: Error): void; cancel?: () => void }
+interface Job { request: FrameRequest; signal?: AbortSignal; resolve(result: DecodedFrame): void; reject(error: Error): void; cancel?: () => void }
 
-/** One native decoder at a time; clock frames precede background waveform chunks. */
+/** One native decoder at a time, with cancellable clock frame requests. */
 export class DecoderQueue implements AnalysisDecoder {
   private queue: Job[] = [];
   private active?: Worker;
   private closed = false;
   constructor(private readonly workerPath: string, private readonly executable: string) {}
-  frame(request: FrameRequest, signal?: AbortSignal): Promise<DecodedFrame> { return this.submit(request, signal) as Promise<DecodedFrame>; }
-  waveform(request: WaveformRequest, signal?: AbortSignal): Promise<WaveformChunk> { return this.submit(request, signal) as Promise<WaveformChunk>; }
   async close(): Promise<void> {
     this.closed = true;
     for (const job of [...this.queue]) job.cancel?.();
@@ -24,15 +21,13 @@ export class DecoderQueue implements AnalysisDecoder {
     worker.postMessage({ type: 'cancel' });
     await stopped;
   }
-  private submit(request: DecodeRequest, signal?: AbortSignal): Promise<DecodeResult> {
-    if (this.closed || signal?.aborted) return Promise.reject(new Error('Preview analysis cancelled'));
+  frame(request: FrameRequest, signal?: AbortSignal): Promise<DecodedFrame> {
+    if (this.closed || signal?.aborted) return Promise.reject(new Error('Clock decoding cancelled'));
     return new Promise((resolve, reject) => {
       const job: Job = { request, signal, resolve, reject };
-      job.cancel = () => { const index = this.queue.indexOf(job); if (index !== -1) { this.queue.splice(index, 1); signal?.removeEventListener('abort', job.cancel!); reject(new Error('Preview analysis cancelled')); } };
+      job.cancel = () => { const index = this.queue.indexOf(job); if (index !== -1) { this.queue.splice(index, 1); signal?.removeEventListener('abort', job.cancel!); reject(new Error('Clock decoding cancelled')); } };
       signal?.addEventListener('abort', job.cancel, { once: true });
       this.queue.push(job);
-      const priority = (job: Job) => job.request.kind === 'waveform' ? 1 : 0;
-      this.queue.sort((a, b) => priority(a) - priority(b));
       this.drain();
     });
   }
@@ -41,13 +36,13 @@ export class DecoderQueue implements AnalysisDecoder {
     const job = this.queue.shift();
     if (!job) return;
     job.signal?.removeEventListener('abort', job.cancel!);
-    if (job.signal?.aborted) { job.reject(new Error('Preview analysis cancelled')); this.drain(); return; }
+    if (job.signal?.aborted) { job.reject(new Error('Clock decoding cancelled')); this.drain(); return; }
     let worker: Worker;
     try { worker = new Worker(this.workerPath, { workerData: { executable: this.executable, request: job.request } }); }
     catch (error) { job.reject(error as Error); this.drain(); return; }
     this.active = worker;
     let settled = false;
-    const settle = (error?: Error, result?: DecodeResult) => {
+    const settle = (error?: Error, result?: DecodedFrame) => {
       if (settled) return;
       settled = true; job.signal?.removeEventListener('abort', cancel);
       if (error) job.reject(error); else job.resolve(result!);
@@ -55,15 +50,15 @@ export class DecoderQueue implements AnalysisDecoder {
     const cancel = () => worker.postMessage({ type: 'cancel' });
     job.signal?.addEventListener('abort', cancel, { once: true });
     worker.on('message', message => {
-      if (job.signal?.aborted || this.closed) { settle(new Error('Preview analysis cancelled')); return; }
+      if (job.signal?.aborted || this.closed) { settle(new Error('Clock decoding cancelled')); return; }
       if (message?.type === 'error') settle(new Error(String(message.message)));
       if (message?.type === 'result') {
-        const parsed = (job.request.kind === 'frame' ? frameSchema : waveformSchema).safeParse(message.result);
-        if (parsed.success) settle(undefined, parsed.data); else settle(new Error('Invalid preview from decoder worker'));
+        const parsed = frameSchema.safeParse(message.result);
+        if (parsed.success) settle(undefined, parsed.data); else settle(new Error('Invalid clock image from decoder worker'));
       }
     });
     worker.once('error', error => settle(error));
-    worker.once('exit', () => { settle(new Error('Preview decoder stopped before completion')); this.active = undefined; this.drain(); });
+    worker.once('exit', () => { settle(new Error('Clock decoder stopped before completion')); this.active = undefined; this.drain(); });
     if (job.signal?.aborted) cancel();
   }
 }

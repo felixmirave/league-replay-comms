@@ -78,7 +78,7 @@ describe('guided review state machine', () => {
     expect(flow.observe(state)).toMatchObject({ state: 'alignment.analyzing', primary: undefined });
     state.library!.clock = { status: 'needs-attention', message: 'Clock hidden', framesRead: 4 };
     const editor = flow.observe(state);
-    expect(editor).toMatchObject({ state: 'alignment.manual', primary: 'Use this moment' });
+    expect(editor).toMatchObject({ state: 'alignment.manual', primary: 'Done' });
     state.library!.clock = undefined; state.connectionError = 'Disconnected';
     expect(flow.observe(state)).toMatchObject({ state: 'alignment.manual', editorKey: editor.editorKey });
     state.connectionError = undefined;
@@ -99,6 +99,17 @@ describe('guided review state machine', () => {
     recording(state); align(state); expect(flow.observe(state).state).toBe('ready.offline');
     flow.send('review', state); expect(flow.observe(state).state).toBe('setup.folder');
     state.replay = facts().replay; expect(flow.observe(state).state).toBe('ready');
+  });
+  it.each([true, false])('finishes live edits while preserving listening or offline preparation (connected: %s)', connected => {
+    const flow = new GuidedWorkflow(), state = facts(connected); recording(state); align(state);
+    if (!connected) flow.send('prepare', state);
+    flow.observe(state); flow.send('edit', state);
+    state.library!.boundToRuntime = connected; state.sync.state = 'following';
+    const editor = flow.observe(state);
+    align(state);
+    expect(flow.observe(state)).toMatchObject({ state: 'alignment.manual', editorKey: editor.editorKey });
+    flow.send('finish-edit', state);
+    expect(flow.observe(state).state).toBe(connected ? 'listening' : 'ready.offline');
   });
   it('resets the editor for a different recording but retains it for progress updates', () => {
     const flow = new GuidedWorkflow(), state = facts(); recording(state);

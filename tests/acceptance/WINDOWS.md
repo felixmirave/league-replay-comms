@@ -49,7 +49,10 @@ does not establish successful Windows startup or audio output.
 3. Open a replay in League and wait for automatic connection. Choose the original recording,
    including a filename with spaces or non-ASCII text.
    Preview each relevant audio track and select the comms track.
-4. Pause both views at a matching event, select **Use this moment**, then **Start listening**. Verify that the offset sign is correct by using Comms earlier/later with Fine adjustment (10 ms), then Save timing.
+4. Open **Adjust timing** and select **Start listening**. Type an offset or use
+   **Back 0.1 s** / **Forward 0.1 s** while watching League. Verify that Back moves
+   the recording backward and Forward moves it forward. Check Shift (1 s), Alt
+   (0.01 s), and arrow-key steps. **Done** and reopening the editor must keep listening.
 5. Exercise the matrix below. Export timing traces after each group rather than
    expecting the bounded in-memory trace to retain an entire match.
 
@@ -72,15 +75,15 @@ does not establish successful Windows startup or audio output.
 | Unplug/reconnect USB or Bluetooth output, or change its format | Missing output stays silent; successful replacement restores the selected stream, while failed restoration offers Retry audio |
 | Trigger repeated output failures | Automatic replacements are bounded; no recurring playback/restart loop; deliberate retry remains available |
 | Change output during a seek or track selection | Obsolete position/completion cannot resume playback; the selected stream is verified before recovery completes |
-| Reach recording EOF, then seek backward | Preview pauses at EOF and can seek backward without an output-recovery loop |
+| Reach recording EOF, then seek backward in League | Comms resume at the corresponding recording position without an output-recovery loop |
 | Terminate the companion or its sync process | The owned mpv process stops; no indefinite orphan audio |
 
 ## Saved reviews and media import
 
-1. Set a manual anchor and a 10 ms correction; select another audio track and set a
+1. Set a manual offset and adjust it by 10 ms; select another audio track and set a
    different offset. Check that switching tracks restores their individual values.
 2. Close/reopen the app and reopen the recent recording. Verify recording, selected
-   track, base offset, correction, and volume.
+   track, effective offset, and volume.
 3. Rename the recording in its current folder and repeat. Then move it elsewhere;
    verify **Locate recording** and **Add media folder**, including a different file with
    the same name and size that must not inherit the saved alignment.
@@ -91,15 +94,17 @@ does not establish successful Windows startup or audio output.
    tracks, leading video without comms, and an audio track shorter than the video.
    Check reported audio bounds and silence outside them. Unknown timing must show
    analysis progress or an actionable error; it must not fabricate a zero timestamp.
-6. With League disconnected, enter explicit game/recording timestamps and preview
-   the recording. Save/reopen, then connect and use Start listening.
-7. Click and zoom the waveform, seek repeatedly during generation, and change
-   recordings/tracks. A late result must not replace the current preview. Copy
-   the audio playhead time into a manual anchor, including recordings with nonzero
-   stream starts. No video frames or clock-region selection controls should appear.
+6. With League disconnected, enter a signed offset. Verify that Start listening is
+   disabled, Done saves and returns to offline review, and reopening restores it.
+   Connect and use Start listening; connection alone must not start audio.
+7. Type a partial negative value and change it while replay clocks update. Rapidly
+   click Back/Forward, then leave or close the app. The newest valid edit must
+   persist. Slow saves must not reset input, move the controls, or flash warnings.
+   Check nonzero stream starts and switching recordings/tracks. No waveform,
+   recording scrubber, timestamp pairs, or video/crop controls should appear.
 8. Read a video's top-right game clock. With an unreadable or hidden clock, or a
-   decoding/OCR failure, the app must open **Match one moment** directly. Enter and
-   save a manual anchor. Retry detection and cancel during decoding or recognition. Make a manual anchor/nudge while analysis runs; a late result
+   decoding/OCR failure, the app must open **Adjust timing** directly. Enter and
+   save a manual anchor. Retry detection and cancel during decoding or recognition. Change the offset while analysis runs; a late result
    must retain the edit. Re-run while aligned and check that failure retains it.
    A successful reading must apply the consecutive-frame midpoint automatically,
    including for late-starting or early-ending clips. It must not start following.

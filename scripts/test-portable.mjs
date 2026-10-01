@@ -77,15 +77,14 @@ try {
   await waitState(window, state => !!state.library?.recording?.hash && state.media?.name === basename(audioPath));
   await window.evaluate(async () => {
     await window.review.command({ type: 'volume', volume: 0 });
-    await window.review.command({ type: 'seek-preview', positionSeconds: 2.125 });
     await window.review.command({ type: 'preview', paused: false });
   });
-  const moving = await waitState(window, state => !state.paused && state.positionSeconds > 2.15);
+  const moving = await waitState(window, state => !state.paused && state.positionSeconds > 0.15);
   assert(moving.audioOutput?.driver && moving.audioOutput.driver !== 'null', 'Packaged playback must use a real output driver');
   report.outputDriver = moving.audioOutput.driver;
   await window.evaluate(() => window.review.command({ type: 'preview', paused: true }));
   await waitState(window, state => state.paused);
-  report.checks.push('bundled-probe-and-player', 'unicode-audio-path', 'precise-seek-and-paused-preview');
+  report.checks.push('bundled-probe-and-player', 'unicode-audio-path', 'audio-preview-and-pause');
 
   const ffmpeg = join(identity.resources, 'bin/win32-x64/ffmpeg.exe');
   assert.equal(await digestFile(ffmpeg), verified.payloadFiles['resources/bin/win32-x64/ffmpeg.exe']);
@@ -96,7 +95,7 @@ try {
   const opened = await waitState(window, state => state.media?.name === basename(video) && !!state.library?.recording?.hash);
   assert.equal(opened.media.tracks.length, 2);
   await window.evaluate(async () => {
-    await window.review.command({ type: 'cancel-clock' });
+    await window.review.command({ type: 'workflow', action: 'edit' });
     await window.review.command({ type: 'align', offsetSeconds: 3 });
     await window.review.command({ type: 'analyze-clock' });
   });
@@ -109,8 +108,7 @@ try {
   const track = opened.media.tracks[1].id;
   await window.evaluate(async id => {
     await window.review.command({ type: 'track', trackId: id });
-    await window.review.command({ type: 'align', offsetSeconds: 3.125 });
-    await window.review.command({ type: 'nudge', deltaSeconds: 0.01 });
+    await window.review.command({ type: 'align', offsetSeconds: 3.135 });
     await window.review.command({ type: 'volume', volume: 37 });
   }, track);
   const saved = await waitState(window, state => state.paused && state.media.selectedTrackId === track && Math.abs(state.offsetSeconds - 3.135) < 1e-8 && !state.library.saveError);

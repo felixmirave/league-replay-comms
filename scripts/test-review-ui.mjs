@@ -37,16 +37,6 @@ async function waitState(window, predicate, timeout = 10000) {
   } while (Date.now() < deadline);
   throw new Error(`Review state did not converge: ${JSON.stringify(state)}`);
 }
-async function waitPreview(window, predicate) {
-  const deadline = Date.now() + 10000;
-  let preview;
-  do {
-    preview = await window.evaluate(() => window.review.preview());
-    if (predicate(preview)) return preview;
-    await delay(50);
-  } while (Date.now() < deadline);
-  throw new Error(`Preview did not converge: ${JSON.stringify({ ...preview, waveform: preview.waveform && { ...preview.waveform, peaks: preview.waveform.peaks.length } })}`);
-}
 async function launch() {
   app = await electron.launch({ executablePath, args: ['.', ...(process.env.COMMS_TEST_NO_SANDBOX === '1' ? ['--no-sandbox'] : [])], env: { ...process.env, COMMS_TEST_USER_DATA: profile, COMMS_TEST_NULL_AUDIO: '1' } });
   const window = await app.firstWindow();
@@ -252,28 +242,17 @@ try {
   await selectFile(mediaPath);
   await window.getByRole('button', { name: 'Choose recording', exact: true }).click();
   const recordingHash = (await waitState(window, state => !!state.library?.recording?.hash, 30000)).library.recording.hash;
-  const waveform = await waitPreview(window, preview => preview.waveform?.complete);
-  assert.ok(waveform.waveform.peaks.length > 100);
-  assert.ok(waveform.waveform.peaks.some(peak => peak[3] > 0));
-  await window.getByRole('slider', { name: 'Audio waveform', exact: true }).click({ position: { x: 400, y: 50 } });
-  await waitState(window, state => state.positionSeconds > 1 && state.paused);
-  await window.getByLabel('Game time at this moment', { exact: true }).fill('0:02');
-  await window.getByLabel('Recording time', { exact: true }).fill('0:04.5');
+  await window.getByLabel('Recording offset (seconds)', { exact: true }).fill('2.5');
   await window.getByRole('button', { name: 'Settings', exact: true }).click();
   await window.keyboard.press('Escape');
-  assert.equal(await window.getByLabel('Recording time', { exact: true }).inputValue(), '0:04.5');
-  assert.equal(await window.getByLabel('Game time at this moment', { exact: true }).inputValue(), '0:02');
-  await window.getByLabel('Fine adjustment (10 ms)', { exact: true }).check();
-  await window.getByRole('button', { name: 'Comms earlier', exact: true }).click();
-  await window.getByRole('button', { name: 'Use this moment', exact: true }).click();
+  assert.equal(await window.getByLabel('Recording offset (seconds)', { exact: true }).inputValue(), '2.5');
+  await window.getByRole('button', { name: 'Forward 0.1 s', exact: true }).click({ modifiers: ['Alt'] });
   await waitState(window, state => Math.abs(state.offsetSeconds - 2.51) < 1e-8);
+  assert.equal(await window.getByRole('button', { name: 'Start listening', exact: true }).isDisabled(), true);
+  await window.getByRole('button', { name: 'Done', exact: true }).click();
+  await waitState(window, state => state.workflow?.state === 'ready.offline');
   await window.getByRole('button', { name: 'Adjust timing', exact: true }).click();
-  await window.getByRole('button', { name: 'Preview recording', exact: true }).click();
-  await waitState(window, state => !state.paused && state.positionSeconds > 0.1);
-  await window.getByRole('button', { name: 'Pause recording', exact: true }).click();
-  await waitState(window, state => state.paused);
   await window.evaluate(() => window.review.command({ type: 'volume', volume: 99 }));
-  assert.equal(await window.getByRole('button', { name: 'Start listening', exact: true }).count(), 0);
   await checkVolumeLayout(window);
   await checkTraceExport(window);
   await checkOutputRecovery(window);
@@ -312,12 +291,12 @@ try {
   await window.getByRole('button', { name: 'Retry saving', exact: true }).click();
   await waitState(window, state => !state.library?.saveError && state.offsetSeconds === 4);
   assert.equal(Object.values(JSON.parse(await readFile(join(profile, 'library.json'), 'utf8')).timings)[0].alignment.baseOffsetSeconds, 4);
-  await window.evaluate(async () => { await window.review.command({ type: 'align', offsetSeconds: 2.5 }); await window.review.command({ type: 'nudge', deltaSeconds: 0.01 }); });
+  await window.evaluate(async () => { await window.review.command({ type: 'align', offsetSeconds: 2.51 }); });
   console.log('Real Electron exit: failed alignment/volume saves, close prompt, rejected new edit, cancel, and successful retry preserved both changes.');
   await close();
   let saved = JSON.parse(await readFile(join(profile, 'library.json'), 'utf8'));
-  assert.equal(Object.values(saved.timings)[0].alignment.baseOffsetSeconds, 2.5);
-  assert.equal(Object.values(saved.timings)[0].alignment.correctionSeconds, 0.01);
+  assert.equal(Object.values(saved.timings)[0].alignment.baseOffsetSeconds, 2.51);
+  assert.equal(Object.values(saved.timings)[0].alignment.correctionSeconds, 0);
   assert.equal(saved.settings.volume, 37);
   const renamed = join(folder, 'renamed café comms.wav');
   await rename(mediaPath, renamed); mediaPath = renamed;
@@ -327,7 +306,7 @@ try {
   await waitState(window, state => state.media?.name === basename(mediaPath) && state.offsetSeconds !== undefined);
   let restored = await window.evaluate(() => window.review.snapshot());
   assert.ok(Math.abs(restored.offsetSeconds - 2.51) < 1e-8);
-  assert.equal(restored.library.alignment.correctionSeconds, 0.01);
+  assert.equal(restored.library.alignment.correctionSeconds, 0);
   assert.equal(restored.library.volume, 37);
   await close();
   const movedFolder = join(folder, 'new media folder'); await mkdir(movedFolder);
@@ -358,20 +337,18 @@ try {
     assert.ok(inspected.media.probe.streams.some(stream => stream.type === 'video'));
     await window.getByRole('button', { name: 'Use this track', exact: true }).click();
     await waitState(window, state => state.workflow?.state === 'alignment.manual' && state.library?.clock?.status === 'needs-attention', 180000);
-    assert.equal(await window.getByRole('heading', { name: 'Match one moment', exact: true }).count(), 1);
-    assert.equal(await window.getByText('Automatic clock detection failed.', { exact: false }).count(), 1);
+    assert.equal(await window.getByRole('heading', { name: 'Adjust timing', exact: true }).count(), 1);
+    assert.equal(await window.getByText('Automatic timing could not be detected.', { exact: false }).count(), 1);
     assert.equal(await window.locator('.video-preview, .frame-stage, .crop-surface, .crop-inputs').count(), 0);
-    const target = inspected.media.tracks[0].range.startSeconds + 0.5;
-    await window.getByLabel('Go to recording time', { exact: true }).fill(String(target));
-    await window.getByRole('button', { name: 'Go', exact: true }).click();
-    await waitState(window, state => Math.abs(state.positionSeconds - target) < 0.025);
+    await window.getByLabel('Recording offset (seconds)', { exact: true }).fill('-0.5');
+    await window.getByRole('button', { name: 'Back 0.1 s', exact: true }).click();
+    await waitState(window, state => Math.abs(state.offsetSeconds + .6) < 1e-8);
     const cached = JSON.parse(await readFile(join(profile, 'library.json'), 'utf8')).media[inspected.library.recording.hash];
     assert.ok(cached.probe.data.streams.find(stream => stream.type === 'audio').packetRange);
-    await waitPreview(window, preview => preview.waveform?.complete);
-    await window.getByRole('button', { name: 'Use recording playhead', exact: true }).click();
-    assert.match(await window.getByLabel('Recording time', { exact: true }).inputValue(), /^0:/);
-    console.log('Real Electron video import: background packet bounds, canonical seek, and cached timing passed.');
-    console.log('Real Electron fallback: failed clock detection opens manual timing with audio waveform and playhead selection, without video frames or crop controls.');
+    assert.equal(await window.locator('.task input').count(), 1);
+    await mkdir('.cache', { recursive: true });
+    await window.screenshot({ path: '.cache/timing-editor.png', fullPage: true });
+    console.log('Real Electron fallback: failed detection opens one live offset, with no waveform, frame selection, or timestamp pairs.');
     const secondTrack = inspected.media.tracks[1].id;
     await window.evaluate(async id => { await window.review.command({ type: 'track', trackId: id }); await window.review.command({ type: 'align', offsetSeconds: 2.5 }); }, secondTrack);
     await checkOutputRecovery(window);
@@ -404,12 +381,11 @@ try {
       await window.getByRole('button', { name: 'Choose recording', exact: true }).click();
       await waitState(window, state => state.media?.name === basename(clockVideo) && state.library?.clock?.status === 'running');
       await window.getByRole('button', { name: 'Align manually', exact: true }).click();
-      await window.getByLabel('Game time at this moment', { exact: true }).fill('0:02');
-      await window.getByLabel('Recording time', { exact: true }).fill('0:05');
-      await window.getByRole('button', { name: 'Use this moment', exact: true }).click();
+      await window.getByLabel('Recording offset (seconds)', { exact: true }).fill('3');
+      await window.getByRole('button', { name: 'Done', exact: true }).click();
       await waitState(window, state => state.offsetSeconds === 3 && !state.library?.clock);
       await window.getByRole('button', { name: 'Adjust timing', exact: true }).click();
-      await window.getByText('More timing options', { exact: true }).click();
+      await window.getByRole('button', { name: 'Settings', exact: true }).click();
       await window.getByRole('button', { name: 'Read game clock again', exact: true }).click();
       const estimate = await waitState(window, state => state.library?.clock?.status === 'accepted' || state.library?.clock?.status === 'needs-attention', 180000);
       assert.equal(estimate.library.clock.status, 'accepted', estimate.library.clock.message);
@@ -426,7 +402,7 @@ try {
       await window.getByRole('button', { name: 'Choose recording', exact: true }).click();
       await waitState(window, state => state.library?.alignment?.source === 'video-clock' && state.workflow?.state === 'ready.offline', 30000);
       await window.getByRole('button', { name: 'Adjust timing', exact: true }).click();
-      await window.getByText('More timing options', { exact: true }).click();
+      await window.getByRole('button', { name: 'Settings', exact: true }).click();
       await window.getByRole('button', { name: 'Read game clock again', exact: true }).click();
       const reused = await waitState(window, state => state.library?.clock?.status === 'accepted', 180000);
 
@@ -440,7 +416,7 @@ try {
   assert.deepEqual(errors, []);
   await mkdir('.cache', { recursive: true });
   await window.screenshot({ path: '.cache/review-window.png', fullPage: true });
-  console.log('Real Electron review: import, timestamps, nudge, preview, persistence, rename, and configured-folder relocation passed.');
+  console.log('Real Electron review: import, live offset edits, persistence, rename, and configured-folder relocation passed.');
 } catch (error) {
   if (app) {
     const window = await app.firstWindow();

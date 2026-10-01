@@ -44,8 +44,8 @@ beforeEach(async () => {
       },
     };
     window.review = {
-      snapshot: async () => structuredClone(window.volumeTest.state), preview: async () => ({ revision: 0, mediaGeneration: 0 }),
-      subscribe: listener => { window.volumeTest.listener = listener; return () => {}; }, subscribePreview: () => () => {},
+      snapshot: async () => structuredClone(window.volumeTest.state),
+      subscribe: listener => { window.volumeTest.listener = listener; return () => {}; },
       command: command => new Promise((resolve, reject) => window.volumeTest.calls.push({ command, resolve, reject })),
     };
   });

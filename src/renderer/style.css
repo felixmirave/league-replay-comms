@@ -29,14 +29,13 @@ button:hover:enabled { background: #eef3fd; }
 button:disabled { opacity: .5; cursor: default; }
 .primary { background: #205cce; border-color: #205cce; color: white; padding: 13px 20px; font-size: 14px; }
 button.primary:hover:enabled { background: #184bac; }
-button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, canvas:focus-visible { outline: 3px solid #2863d9; outline-offset: 3px; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #2863d9; outline-offset: 3px; }
 .text-button { color: #285497; border-color: transparent; background: transparent; padding: 7px 6px; font-weight: 500; }
 .row, .actions, .secondary { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .row { margin: 14px 0; } .actions { margin-top: 28px; } .secondary { margin-top: 12px; gap: 5px; }
 label { font-size: 13px; display: flex; flex-direction: column; gap: 7px; color: #34485f; }
 label.checkbox, .choice { flex-direction: row; align-items: center; }
-input:not([type]), input[type=number], select { border: 1px solid #9dacc2; border-radius: 5px; background: white; color: #182535; padding: 9px; max-width: 100%; }
-input:not([type]), input[type=number] { width: 138px; }
+input[type=text], select { border: 1px solid #9dacc2; border-radius: 5px; background: white; color: #182535; padding: 9px; max-width: 100%; }
 input[type=range], input[type=checkbox], input[type=radio] { accent-color: #205cce; }
 input[type=checkbox], input[type=radio] { width: 17px; height: 17px; flex-shrink: 0; }
 fieldset { padding: 0; border: 0; margin: 22px 0; }
@@ -63,12 +62,6 @@ footer { border-top: 1px solid #e8edf3; padding: 15px 30px; color: #536983; font
 details { margin-top: 18px; } summary { cursor: pointer; font-size: 13px; font-weight: 550; color: #31588e; }
 details > label { margin-top: 15px; }
 details button { margin: 8px 5px 0 0; }
-.clocks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
-.clocks span { display: block; color: #526176; font-size: 12px; margin-bottom: 6px; }
-.clocks strong { font-variant-numeric: tabular-nums; font-weight: 500; font-size: 23px; }
-.recording-preview { margin-top: 20px; }
-.waveform { width: 100%; height: 95px; display: block; background: #f0f4fb; border-radius: 7px; cursor: crosshair; margin: 12px 0 5px; }
-.waveform-times { display: flex; justify-content: space-between; font-size: 12px; color: #526176; }
 .muted { color: #526176; font-size: 12px; }
 .hash-progress { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #526176; margin-top: 24px; }
 progress { width: 100px; height: 8px; accent-color: #205cce; }
@@ -77,6 +70,12 @@ dialog::backdrop { background: #15243d66; }
 dialog section { margin-top: 24px; } dialog button { margin: 6px 5px 6px 0; } dialog .setup-panel { margin-top: 22px; }
 dl { display: grid; grid-template-columns: 130px 1fr; gap: 10px; font-size: 13px; } dt { color: #526176; } dd { margin: 0; overflow-wrap: anywhere; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-@media(max-width: 620px) { .task { padding: 28px 22px; } header { padding: 16px 22px; } .clocks strong { font-size: 20px; } .track-choice { flex-wrap: wrap; } }
+@media(max-width: 620px) { .task { padding: 28px 22px; } header { padding: 16px 22px; } .track-choice { flex-wrap: wrap; } }
 
 .timing-editor > .actions, .task > .actions { position: sticky; bottom: 0; z-index: 2; padding: 14px 0; background: white; }
+.timing-offset { max-width: 300px; }
+.timing-offset input { width: 100%; font-size: 26px; font-variant-numeric: tabular-nums; }
+.timing-steps { display: flex; flex-wrap: wrap; gap: 12px; }
+.timing-steps button { display: flex; align-items: center; gap: 10px; }
+.timing-steps span { font-size: 22px; line-height: 1; }
+.timing-status { min-height: 3em; }

@@ -291,15 +291,11 @@ async function handle(request: Exclude<WorkerRequest, { type: 'heartbeat' | 'pow
   if (command.type === 'retry') throw new Error('Retry must pass through playback recovery');
   if (!snapshot.media) throw new Error('Open a recording first');
   if (command.type === 'update-probe') { snapshot.media = engine.updateProbe(snapshot.media, command.probe); if (lastRecording) lastRecording.probe = command.probe; return; }
-  if (command.type === 'preview' || command.type === 'seek-preview' || command.type === 'track') {
+  if (command.type === 'preview' || command.type === 'track') {
     dispatch({ type: 'mode', mode: 'preview' });
     await engineSeek;
   }
   if (command.type === 'preview') { await engine.rate(1); await engine.pause(command.paused); }
-  if (command.type === 'seek-preview') {
-    if (command.positionSeconds >= snapshot.media.durationSeconds) throw new Error('Preview position is outside the recording');
-    await engine.seek(command.positionSeconds);
-  }
   if (command.type === 'track') {
     if (!snapshot.media.tracks.some(track => track.id === command.trackId)) throw new Error('Unknown audio track');
     await engine.track(command.trackId);
@@ -308,15 +304,6 @@ async function handle(request: Exclude<WorkerRequest, { type: 'heartbeat' | 'pow
     dispatch({ type: 'unbind' });
   }
   if (command.type === 'volume') { volume = command.volume; await engine.volume(volume); }
-  if (command.type === 'align-here') {
-    const latest = snapshot.replay;
-    if (!latest || !latest.paused || latest.seeking || monotonicSeconds() - latest.receivedAtSeconds >= 0.3) throw new Error('Pause a connected replay at the matching moment first');
-    const observed = await engine.observe();
-    if (!observed.paused || observed.seeking || engineSeek) throw new Error('Pause the recording at the matching moment first');
-    const current = snapshot.replay;
-    if (!current || current.sessionId !== latest.sessionId || !current.paused || current.timeSeconds !== latest.timeSeconds) throw new Error('Replay moved while aligning. Try again.');
-    snapshot.offsetSeconds = observed.positionSeconds - current.timeSeconds;
-  }
   if (command.type === 'follow') {
     if (!snapshot.media.tracks.find(track => track.id === snapshot.media?.selectedTrackId)?.range) throw new Error('This audio track has no usable time bounds yet. Preview and manual alignment remain available.');
     if (snapshot.offsetSeconds === undefined) throw new Error('Set an alignment first');

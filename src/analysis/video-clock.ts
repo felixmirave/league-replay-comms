@@ -8,7 +8,7 @@ import type { FileIdentity } from '../library/model';
 // Old cached sparse windows do not establish consecutive-frame evidence.
 export const clockAnalysisVersion = 4;
 
-export interface VideoClockRequest extends Omit<FrameRequest, 'kind' | 'positionSeconds' | 'after' | 'crop'> {
+export interface VideoClockRequest extends Omit<FrameRequest, 'positionSeconds' | 'after' | 'crop'> {
   startSeconds: number;
   endSeconds: number;
   hash?: string;
@@ -23,7 +23,7 @@ export interface VideoClockJobs {
   flush?(): Promise<void>;
 }
 
-export interface ClockFrame extends ClockText { frame: DecodedFrame; crop: Crop; clockSeconds?: number }
+interface ClockFrame extends ClockText { frame: DecodedFrame; clockSeconds?: number }
 
 /** Locate one tick, decode its adjacent frames, then accept their midpoint. */
 export class VideoClockAnalyzer implements VideoClockJobs {
@@ -31,19 +31,18 @@ export class VideoClockAnalyzer implements VideoClockJobs {
     private readonly limits = { frames: 300, milliseconds: 180000 }) {}
 
   /** The same crop, native preprocessing, OCR and acceptance used by video analysis. */
-  async readFrame(request: Omit<FrameRequest, 'kind' | 'crop'>, signal?: AbortSignal): Promise<ClockFrame> {
-    const crop = gameClockCrop;
-    const frame = await this.decoder.frame({ ...request, crop, kind: 'frame' }, signal);
+  async readFrame(request: Omit<FrameRequest, 'crop'>, signal?: AbortSignal): Promise<ClockFrame> {
+    const frame = await this.decoder.frame({ ...request, crop: gameClockCrop }, signal);
     const text = await this.reader.read(frame.png, signal);
     const clockSeconds = text.confidence >= experimentalClockPolicy.minConfidence ? parseClock(text.text) : undefined;
-    return { frame, crop, ...text, clockSeconds };
+    return { frame, ...text, clockSeconds };
   }
 
   async analyze(request: VideoClockRequest, signal?: AbortSignal, progress?: (value: ClockProgress) => void): Promise<VideoClockResult> {
     if (!Number.isFinite(request.startSeconds) || !Number.isFinite(request.endSeconds) || request.startSeconds < 0 || request.endSeconds <= request.startSeconds) throw new Error('Invalid video clock range');
     const crop = gameClockCrop;
     const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(new Error('Clock analysis reached its time limit. Match a moment manually to align the comms.')), this.limits.milliseconds);
+    const timer = setTimeout(() => timeout.abort(new Error('Clock analysis reached its time limit. Adjust the recording offset manually.')), this.limits.milliseconds);
     const active = signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal;
     let framesRead = 0;
     try {
@@ -51,7 +50,7 @@ export class VideoClockAnalyzer implements VideoClockJobs {
       const read = async (positionSeconds: number, stage: ClockProgress['stage'], after = false): Promise<ClockReading | undefined> => {
         active.throwIfAborted();
         if (positionSeconds >= request.endSeconds) return;
-        if (framesRead >= this.limits.frames) throw new Error('Clock analysis reached its frame limit. Match a moment manually to align the comms.');
+        if (framesRead >= this.limits.frames) throw new Error('Clock analysis reached its frame limit. Adjust the recording offset manually.');
         framesRead++;
         progress?.({ stage, framesRead });
         let decoded: ClockFrame;

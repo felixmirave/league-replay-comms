@@ -1,67 +1,90 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ProbeSnapshot, UserCommand } from '../shared/protocol';
-import type { PreviewView } from '../shared/analysis';
-import { RecordingPreview } from './preview';
 
 export function time(seconds?: number): string {
   if (seconds === undefined || !Number.isFinite(seconds)) return '—';
   const ms = Math.round(Math.abs(seconds) * 1000);
   return `${seconds < 0 ? '−' : ''}${Math.floor(ms / 60000)}:${((ms % 60000) / 1000).toFixed(3).padStart(6, '0')}`;
 }
-function timestamp(value: string): number {
-  if (!/^(?:\d+:)?\d+(?:\.\d+)?$/.test(value.trim())) throw new Error('Enter minutes:seconds, such as 10:45.500, or a number of seconds.');
-  const parts = value.trim().split(':').map(Number);
-  if (parts.length === 2 && parts[1]! >= 60) throw new Error('Seconds after the colon must be less than 60.');
-  const result = parts.length === 2 ? parts[0]! * 60 + parts[1]! : parts[0]!;
-  if (!Number.isFinite(result)) throw new Error('Enter a finite timestamp.');
-  return result;
+function offset(value: string): number | undefined {
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim())) return;
+  const number = Number(value);
+  if (Number.isFinite(number) && Math.abs(number) <= 86400) return number;
 }
-interface Props { snapshot: ProbeSnapshot; preview: PreviewView; busy: boolean; command(value: UserCommand): Promise<void> }
+interface Props { snapshot: ProbeSnapshot; busy: boolean; send(value: UserCommand): Promise<void> }
 
-export function TimingEditor({ snapshot, preview, busy, command }: Props) {
+export function TimingEditor({ snapshot, busy, send }: Props) {
   const saved = snapshot.library?.alignment;
-  const [method, setMethod] = useState<'paused' | 'timestamps' | 'offset'>(saved ? 'offset' : snapshot.replay && !snapshot.connectionError ? 'paused' : 'timestamps');
-  const [base, setBase] = useState(String(saved?.baseOffsetSeconds ?? snapshot.workflow?.suggestedOffsetSeconds ?? 0));
-  const [correction, setCorrection] = useState(saved?.correctionSeconds ?? 0);
-  const [fine, setFine] = useState(false);
-  const [gameTime, setGameTime] = useState(snapshot.replay ? time(snapshot.replay.timeSeconds) : '');
-  const [recordingTime, setRecordingTime] = useState(time(snapshot.positionSeconds ?? 0));
-  const [seek, setSeek] = useState('');
+  const initial = saved ? saved.baseOffsetSeconds + saved.correctionSeconds : 0;
+  // This editor owns the input until Done: replay ticks and older save replies
+  // must never replace a newer edit, or an incomplete value such as "-".
+  const [value, setValue] = useState(String(initial));
+  const draft = useRef(value), revision = useRef(0);
+  const applied = useRef<number | undefined>(saved && !snapshot.library?.alignmentConflict && snapshot.library?.clock?.status !== 'needs-attention' ? initial : undefined);
+  const latest = useRef(Promise.resolve());
   const [error, setError] = useState('');
+  const [acting, setActing] = useState(false);
   const connected = !!snapshot.replay && !snapshot.connectionError;
-  const media = snapshot.media!;
-  const changeMethod = (value: typeof method) => { setMethod(value); setCorrection(0); setError(''); };
-  const submit = async () => {
-    setError('');
+  const listening = connected && !!snapshot.library?.boundToRuntime && snapshot.sync.state !== 'preview';
+  const valid = offset(value) !== undefined;
+  const disabled = busy || acting;
+  const apply = (number: number) => {
+    const current = ++revision.current;
+    applied.current = number;
+    const result = send({ type: 'align', offsetSeconds: number });
+    latest.current = result;
+    void result.catch(error => {
+      if (current !== revision.current) return;
+      applied.current = undefined;
+      setError(error instanceof Error ? error.message : String(error));
+    });
+    return result;
+  };
+  const change = (text: string) => {
+    draft.current = text; setValue(text); setError('');
+    const number = offset(text);
+    if (number !== undefined) void apply(number);
+  };
+  const adjust = (direction: number, event: { shiftKey: boolean; altKey: boolean }) => {
+    const number = offset(draft.current);
+    if (number === undefined) return;
+    const step = event.shiftKey ? 1 : event.altKey ? .01 : .1;
+    const next = Math.round((number + direction * step) * 1000) / 1000;
+    if (Math.abs(next) <= 86400) change(String(next));
+  };
+  const action = async (command: UserCommand) => {
+    setActing(true); setError('');
     try {
-      if (method === 'paused') {
-        if (!connected || !snapshot.replay?.paused || !snapshot.paused) throw new Error('Pause both the replay in League and the recording at the same moment, or enter the game time instead.');
-        await command({ type: 'align-here' });
-      } else {
-        const offsetSeconds = method === 'offset' ? (base.trim() ? Number(base) : NaN) : timestamp(recordingTime) - timestamp(gameTime);
-        if (!Number.isFinite(offsetSeconds) || Math.abs(offsetSeconds + correction) > 86400) throw new Error('Enter valid timing within 24 hours of the replay.');
-        await command({ type: 'align', offsetSeconds, correctionSeconds: correction });
+      if (command.type !== 'stop') {
+        const number = offset(draft.current);
+        if (number === undefined) throw new Error('Enter a number of seconds between −86400 and 86400.');
+        if (applied.current !== number) await apply(number);
+        else await latest.current;
       }
+      await send(command);
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
+    finally { setActing(false); }
   };
-  const seekTo = async () => {
-    try { setError(''); await command({ type: 'seek-preview', positionSeconds: timestamp(seek) }); }
-    catch (error) { setError(error instanceof Error ? error.message : String(error)); }
-  };
+  const status = !connected ? 'Open a replay in League to hear your adjustments.'
+    : !listening ? 'Start listening to hear your adjustments.'
+    : snapshot.sync.state === 'outside-recording' ? 'Outside the recording. Change the offset or move the replay to a recorded moment.'
+    : snapshot.sync.state === 'unsupported-speed' ? 'Choose a supported replay speed in League.'
+    : snapshot.replay?.paused ? 'Replay paused. Press play in League to hear your adjustments.'
+    : 'Listening — timing changes apply immediately.';
   return <div className="timing-editor">
-    {snapshot.library?.clock?.status === 'needs-attention' && <p className="notice" role="status">Automatic clock detection failed. Match a moment manually below to align the comms.</p>}
-    {snapshot.library?.alignmentConflict && <p className="notice">Different timing settings were saved for this recording in an older version. Set the correct timing here; the original records are preserved.</p>}
-    <div className="clocks"><div><span>Replay in League</span><strong>{connected ? time(snapshot.replay?.timeSeconds) : 'Disconnected'}</strong></div><div><span>Recording</span><strong>{time(snapshot.positionSeconds)}</strong></div></div>
-    <div className="row"><button disabled={busy} onClick={() => void command({ type: 'preview', paused: !snapshot.paused })}>{snapshot.paused ? 'Preview recording' : 'Pause recording'}</button><label>Go to recording time<input value={seek} placeholder="10:45.500" onChange={event => setSeek(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void seekTo(); }} /></label><button disabled={busy} onClick={() => void seekTo()}>Go</button></div>
-    {method === 'offset' && connected && <button disabled={busy || !snapshot.replay?.paused || !Number.isFinite(Number(base)) || snapshot.replay.timeSeconds + Number(base) + correction < 0 || snapshot.replay.timeSeconds + Number(base) + correction > media.durationSeconds} onClick={() => void command({ type: 'seek-preview', positionSeconds: snapshot.replay!.timeSeconds + Number(base) + correction })}>Preview the matching replay moment</button>}
-    <RecordingPreview preview={preview} media={media} position={snapshot.positionSeconds} disabled={busy} command={command} />
-    {method === 'timestamps' && <div className="row timestamp-entry"><label>Game time at this moment<input value={gameTime} aria-invalid={!!error} onChange={event => setGameTime(event.target.value)} placeholder="10:00.000" /></label><label>Recording time<input value={recordingTime} aria-invalid={!!error} onChange={event => setRecordingTime(event.target.value)} /></label><button className="text-button" onClick={() => setRecordingTime(time(snapshot.positionSeconds ?? 0))}>Use recording playhead</button></div>}
-    {method === 'paused' && <p>Pause League at a recognizable moment, then pause this recording at the same moment.</p>}
-    {method !== 'paused' && <div className="correction"><div className="row"><button disabled={busy} onClick={() => setCorrection(value => Math.round((value + (fine ? .01 : .1)) * 1000) / 1000)}>Comms earlier</button><button disabled={busy} onClick={() => setCorrection(value => Math.round((value - (fine ? .01 : .1)) * 1000) / 1000)}>Comms later</button><label className="checkbox"><input type="checkbox" checked={fine} onChange={event => setFine(event.target.checked)} />Fine adjustment (10 ms)</label></div><p>{correction ? `${Math.abs(correction * 1000).toFixed(0)} ms ${correction > 0 ? 'earlier' : 'later'}` : 'No timing correction'}</p></div>}
-    {method === 'paused' && <button className="text-button" onClick={() => changeMethod('timestamps')}>Enter game time instead</button>}
-    {method !== 'paused' && connected && <button className="text-button" onClick={() => changeMethod('paused')}>Match the paused playheads instead</button>}
-    <details><summary>More timing options</summary><label>Offset in seconds<input type="number" step="0.01" value={base} onChange={event => { setBase(event.target.value); setMethod('offset'); }} /></label><p>Recording time minus game time. Changes stay in this draft until saved.</p>{method !== 'timestamps' && <button onClick={() => changeMethod('timestamps')}>Enter both timestamps</button>}{media.probe?.streams.some(stream => stream.type === 'video') && <button onClick={() => void command({ type: 'analyze-clock' })}>Read game clock again</button>}</details>
+    {snapshot.library?.clock?.status === 'needs-attention' && <p className="notice">Automatic timing could not be detected. Adjust the offset below.</p>}
+    {snapshot.library?.alignmentConflict && <p className="notice">Different timing settings were saved for this recording. Set the correct offset below.</p>}
+    <label className="timing-offset">Recording offset (seconds)<input type="text" inputMode="decimal" value={value} disabled={disabled} aria-invalid={!valid} aria-describedby="offset-help" onChange={event => change(event.target.value)} onKeyDown={event => {
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); adjust(event.key === 'ArrowUp' ? 1 : -1, event); }
+    }} /></label>
+    <p id="offset-help">{valid ? 'Positive moves the recording forward; negative moves it back.' : 'Enter a number of seconds between −86400 and 86400.'}</p>
+    <div className="timing-steps">
+      <button disabled={disabled || !valid} onClick={event => adjust(-1, event)} title="Move the recording backward against the replay"><span aria-hidden="true">−</span> Back 0.1 s</button>
+      <button disabled={disabled || !valid} onClick={event => adjust(1, event)} title="Move the recording forward against the replay"><span aria-hidden="true">+</span> Forward 0.1 s</button>
+    </div>
+    <p className="muted">Use ↑ / ↓ or the buttons. Hold Shift for 1 s, Alt for 0.01 s. Changes save automatically.</p>
+    <p className="timing-status" role="status">{status}</p>
     {error && <p role="alert" className="error">{error}</p>}
-    <div className="actions"><button className="primary" disabled={busy} onClick={() => void submit()}>{saved ? 'Save timing' : 'Use this moment'}</button>{saved && <button className="text-button" onClick={() => void command({ type: 'workflow', action: 'cancel-edit' })}>Cancel changes</button>}</div>
+    <div className="actions"><button disabled={disabled || (!listening && (!connected || !valid))} onClick={() => void action({ type: listening ? 'stop' : 'follow' })}>{listening ? 'Stop listening' : 'Start listening'}</button><button className="primary" disabled={disabled || !valid} onClick={() => void action({ type: 'workflow', action: 'finish-edit' })}>Done</button></div>
   </div>;
 }

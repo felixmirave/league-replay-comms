@@ -4,7 +4,7 @@ A Windows companion for listening to original-match comms while reviewing a repl
 in League. The application follows the replay's clock, pause state, speed, and seeks.
 
 Implementation is in progress. The application supports media preview, audio-track
-selection, manual timestamps/offsets, replay following, diagnostic export, and a
+selection, a single live timing offset, replay following, diagnostic export, and a
 saved recording library. Background content hashing restores track and timing after
 recording renames or moves to known/configured folders. Automatic video alignment
 uses the midpoint between consecutive frames where the game timer advances one
@@ -22,10 +22,9 @@ audio bounds while preview remains available. Probed information is cached with
 the recording identity; following stays silent outside the selected track.
 Automatic detection reads the game clock in the top-right corner of the video.
 If it cannot read a usable clock tick, the app opens manual alignment directly.
-Use audio preview, waveform seeking, and matching timestamps or paused playheads;
-there are no video-frame or clock-region selection steps. Derived waveforms are
-cached separately from saved offsets and can be regenerated. The selected pair of
-clock frames is cached by recording contents; its midpoint is recomputed when reused.
+Type an offset or move the recording back/forward while listening alongside League.
+There are no waveform, timestamp-pair, or clock-region selection steps. The selected
+pair of clock frames is cached by recording contents; its midpoint is recomputed when reused.
 
 Unsaved alignment changes remain attached to their recording and audio track when
 you switch views. Recording/track choices, volume, media
@@ -87,6 +86,7 @@ npm run test:engine
 npm run smoke:ui
 npm run test:startup-ui
 npm run test:volume-ui
+npm run test:timing-ui
 npm run smoke:driver
 npm run test:review-ui
 npm run package:win
@@ -114,9 +114,9 @@ the loading window appears first, errors replace it, and closing during startup
 exits cleanly. It also requires a desktop session.
 When `COMMS_TEST_FFMPEG` is provided (or bundled FFmpeg is available on Windows),
 the review test also imports a generated POV video, resolves missing track timing
-in the background, seeks using the canonical timeline, and verifies its cache,
-waveform, and manual playhead timestamp selection. Failed detection must open the
-manual editor without frame or crop controls. With prepared OCR resources, it also
+in the background, verifies cached timing, and edits a single offset after failed
+detection. `test:timing-ui` checks live controls, partial signed input, stale replies,
+save failures, and explicit listening intent in the real renderer. With prepared OCR resources, it also
 reads a generated top-right clock, cancels an analysis through a manual edit,
 re-runs detection, and checks automatic midpoint alignment and saved timing
 restoration after rename.
@@ -207,23 +207,22 @@ are secondary; there is no replay-file picker or replay confirmation step.
    Saved track and timing are restored by content hash, including after a rename.
    Choose the comms track only when multiple tracks need a choice.
 3. For video, the app reads the game clock in the top-right corner. If detection
-   fails, it opens **Match one moment** for manual alignment.
+   fails, it opens **Adjust timing** for manual alignment.
    A readable tick automatically sets the timing. Recordings can start late or
    end early. **Adjust timing** offers manual corrections; playback starts only
    when you select **Start listening**.
-4. For manual alignment, pause League and the recording at the same moment and
-   select **Use this moment**. You can instead enter both timestamps. Waveform
-   seeking and audio preview help find the moment. **More timing options** includes
-   a direct offset (`recording seconds − game seconds`). Fine adjustments are
-   saved separately from the base offset. Changes stay in the editor until saved;
-   **Cancel changes** restores the saved timing.
-5. Select **Start listening**, then control playback in League. **Adjust timing**
-   stops following and opens the editor. A changed replay connection requires
-   another explicit start. Timing drafts survive a disconnect.
+4. For manual alignment, type **Recording offset (seconds)** or use **Back 0.1 s**
+   and **Forward 0.1 s**. A positive offset starts further into the recording; a
+   negative offset starts earlier. Arrow keys also adjust the value. Hold Shift
+   for 1-second steps or Alt for 0.01-second steps. Changes apply and save immediately.
+5. Select **Start listening** in the editor, then control playback in League while
+   adjusting the offset by ear. **Done** closes the editor and keeps listening.
+   **Adjust timing** reopens it without interrupting an active listening session.
+   A changed replay connection requires another explicit start; the offset survives.
 
-**Prepare a recording without League** allows offline timestamp alignment.
+**Prepare a recording without League** allows offline offset entry.
 **Settings** contains connection details, config backups and guarded restoration,
-recording search folders, track selection, volume, and timing diagnostics.
+recording search folders, track selection, clock-detection retry, volume, and timing diagnostics.
 **Locate recording** verifies the contents of a moved file before restoring timing;
 a changed or transcoded recording is treated as a new file.
 

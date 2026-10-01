@@ -2,13 +2,13 @@ import type { ProbeSnapshot } from '../shared/protocol';
 import type { WorkflowIntent, WorkflowState, WorkflowView } from '../shared/workflow';
 
 type Mode = 'review' | 'edit' | 'choose' | 'track';
-interface Context { mode: Mode; prepare: boolean; sawConnection: boolean; mediaKey?: string; state: WorkflowState; revision: number; editorKey: number; suggestedOffsetSeconds?: number }
+interface Context { mode: Mode; prepare: boolean; sawConnection: boolean; mediaKey?: string; state: WorkflowState; revision: number; editorKey: number }
 const initial = (): Context => ({ mode: 'review', prepare: false, sawConnection: false, state: 'checking', revision: 0, editorKey: 0 });
 const primary: Partial<Record<WorkflowState, string>> = {
   'setup.folder': 'Choose League folder', 'setup.installation': 'Use this installation', 'setup.enable': 'Enable replay connection',
   'setup.permission': 'Allow Windows permission', 'setup.repair': 'Check configuration again',
   'recording.choose': 'Choose recording', 'recording.locate': 'Locate recording', 'recording.track': 'Use this track',
-  'recording.timing-error': 'Choose another track', 'alignment.manual': 'Use this moment',
+  'recording.timing-error': 'Choose another track', 'alignment.manual': 'Done',
   ready: 'Start listening', 'ready.offline': 'Connect to League', listening: 'Stop listening', 'audio.error': 'Retry audio',
 };
 function route(context: Context, facts: ProbeSnapshot): WorkflowState {
@@ -58,32 +58,30 @@ export class GuidedWorkflow {
     const previous = this.context, context = { ...previous };
     const mediaKey = facts.library?.recordingReady ? `${facts.library.mediaGeneration}:${facts.media?.selectedTrackId}` : undefined;
     if (mediaKey !== context.mediaKey && mediaKey !== undefined) {
-      context.mode = 'review'; context.mediaKey = mediaKey; context.suggestedOffsetSeconds = undefined;
+      context.mode = 'review'; context.mediaKey = mediaKey;
     }
     if (facts.replay && !facts.connectionError) context.sawConnection = true;
     const next = route(context, facts);
     if (next !== context.state) context.revision++;
     if (next === 'alignment.manual' && (next !== previous.state || mediaKey !== previous.mediaKey)) {
       context.mode = 'edit'; context.editorKey++;
-      context.suggestedOffsetSeconds = facts.library?.alignment ? facts.library.alignment.baseOffsetSeconds + facts.library.alignment.correctionSeconds : undefined;
     }
     context.state = next; this.context = context;
-    return { state: next, revision: context.revision, editorKey: context.editorKey, suggestedOffsetSeconds: context.suggestedOffsetSeconds,
-      canCancelEdit: !!facts.library?.alignment, canReturn: context.mode === 'choose' && !!facts.library?.recordingReady,
+    return { state: next, revision: context.revision, editorKey: context.editorKey,
+      canReturn: context.mode === 'choose' && !!facts.library?.recordingReady,
       primary: next === 'recording.timing-error' && (facts.media?.tracks.length ?? 0) < 2 ? 'Choose another recording' : primary[next] };
   }
   send(intent: WorkflowIntent, facts: ProbeSnapshot): void {
     const context = this.context;
     if (intent === 'prepare') context.prepare = true;
-    else if (intent === 'review' || intent === 'cancel-edit') context.mode = 'review', context.prepare = false;
+    else if (intent === 'finish-edit') context.mode = 'review';
+    else if (intent === 'review') context.mode = 'review', context.prepare = false;
     else if (intent === 'change-recording') context.mode = 'choose';
     else {
       if (!facts.library?.recordingReady) throw new Error('Choose a recording first.');
       if (intent === 'change-track') context.mode = 'track';
       else {
         context.mode = 'edit'; context.state = 'alignment.manual'; context.editorKey++;
-        context.suggestedOffsetSeconds = facts.library.alignment
-          ? facts.library.alignment.baseOffsetSeconds + facts.library.alignment.correctionSeconds : facts.library.clock?.offsetSeconds;
       }
     }
   }

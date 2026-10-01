@@ -214,6 +214,41 @@ describe('review workflow', () => {
     expect(player.state.media?.selectedTrackId).toBe(1);
   });
 
+  it('keeps listening through live offset edits and only resumes after explicit Start following a disconnect', async () => {
+    const { media, library } = await fixtures();
+    const player = new Player(), session = new ReviewSession(library, direct, player, () => {});
+    await session.openMedia(media); await session.settled(); await session.selectTrack(1);
+    await session.setManualOffset(0);
+    expect(player.commands.some(command => command.type === 'follow')).toBe(false);
+    await session.follow();
+    player.commands.length = 0;
+    await session.enterTiming();
+    await session.setManualOffset(.1); await session.setManualOffset(-.1);
+    expect(session.snapshot().boundToRuntime).toBe(true);
+    expect(player.commands).toEqual([
+      { type: 'apply-alignment', offsetSeconds: .1, replaySessionId: 'runtime-a' },
+      { type: 'apply-alignment', offsetSeconds: -.1, replaySessionId: 'runtime-a' },
+    ]);
+    expect(timing(library, session)?.alignment).toMatchObject({ baseOffsetSeconds: -.1, correctionSeconds: 0 });
+    player.state.connectionError = 'Disconnected'; session.onPlayback(player.snapshot());
+    player.state.connectionError = undefined;
+    await session.setManualOffset(-.2);
+    expect(session.snapshot().boundToRuntime).toBe(false);
+    expect(player.commands.at(-1)).toEqual({ type: 'apply-alignment', offsetSeconds: -.2, replaySessionId: undefined });
+    await session.follow(); expect(session.snapshot().boundToRuntime).toBe(true);
+    await session.stop(); await session.setManualOffset(5);
+    expect(session.snapshot().boundToRuntime).toBe(false);
+  });
+
+  it.each([NaN, Infinity, -Infinity, 86400.1, -86400.1])('rejects invalid offsets without changing accepted timing: %s', async value => {
+    const { media, library } = await fixtures();
+    const player = new Player(), session = new ReviewSession(library, direct, player, () => {});
+    await session.openMedia(media); await session.settled(); await session.setManualOffset(3);
+    await expect(session.setManualOffset(value)).rejects.toThrow('within 24 hours');
+    expect(player.state.offsetSeconds).toBe(3);
+    expect(timing(library, session)?.alignment.baseOffsetSeconds).toBe(3);
+  });
+
   it('restores a preferred track and corrected offset after restarting and renaming the recording', async () => {
     const { media, library } = await fixtures();
     const first = new ReviewSession(library, direct, new Player(), () => {});
@@ -221,7 +256,7 @@ describe('review workflow', () => {
     await first.openMedia(media); await first.settled();
     await first.selectTrack(2);
     await first.setManualOffset(45);
-    await first.nudge(0.01);
+    await first.setManualOffset(45.01);
     const recentId = first.snapshot().recordings[0]!.id;
     await rename(media, join(folder, 'renamed comms.mkv'));
     const restarted = await ReviewLibrary.open(join(folder, 'data'));
@@ -231,7 +266,7 @@ describe('review workflow', () => {
     expect(player.state.media?.name).toBe('renamed comms.mkv');
     expect(player.state.media?.selectedTrackId).toBe(2);
     expect(player.state.offsetSeconds).toBeCloseTo(45.01);
-    expect(next.snapshot().alignment?.correctionSeconds).toBeCloseTo(0.01);
+    expect(next.snapshot().alignment).toMatchObject({ baseOffsetSeconds: 45.01, correctionSeconds: 0 });
     await next.follow();
     expect(player.commands.at(-1)?.type).toBe('follow');
   });
@@ -247,12 +282,12 @@ describe('review workflow', () => {
 
     await session.openMedia(media);
     await session.setManualOffset(12);
-    await session.nudge(0.1);
+    await session.setManualOffset(12.1);
     expect(session.snapshot().recording?.hash).toBeUndefined();
-    expect(Object.values(Object.values(library.snapshot().pendingImports)[0]!.edits)[0]?.correctionSeconds).toBeCloseTo(0.1);
+    expect(Object.values(Object.values(library.snapshot().pendingImports)[0]!.edits)[0]?.baseOffsetSeconds).toBeCloseTo(12.1);
     complete(await hash); await session.settled();
     expect(player.state.offsetSeconds).toBeCloseTo(12.1);
-    expect(timing(library, session)?.alignment.correctionSeconds).toBeCloseTo(0.1);
+    expect(timing(library, session)?.alignment.baseOffsetSeconds).toBeCloseTo(12.1);
   });
 
   it('disarms listening on a runtime change and binds only when Start is requested again', async () => {
@@ -395,14 +430,14 @@ describe('review workflow', () => {
     const blocked = new Promise<void>(resolve => { finishWrite = resolve; });
     const actual = library.saveAlignment.bind(library);
     vi.spyOn(library, 'saveAlignment').mockImplementationOnce(async (...args) => { started(); await blocked; await actual(...args); });
-    const first = session.setManualOffset(10), second = session.nudge(0.01), exit = session.prepareExit();
+    const first = session.setManualOffset(10), second = session.setManualOffset(10.01), exit = session.prepareExit();
     await waiting;
     expect(session.snapshot().saveError).toBeUndefined();
     expect(session.snapshot().unsavedAlignments).toBe(1);
     let frozen = false; void exit.then(() => { frozen = true; });
     expect(frozen).toBe(false);
     finishWrite(); await Promise.all([first, second, exit]);
-    expect(timing(library, session)?.alignment.correctionSeconds).toBe(0.01);
+    expect(timing(library, session)?.alignment.baseOffsetSeconds).toBe(10.01);
     const late = session.setManualOffset(20);
     await Promise.resolve(); expect(player.state.offsetSeconds).toBeCloseTo(10.01);
     session.resumeAfterExit(); await late;
@@ -446,7 +481,7 @@ describe('review workflow', () => {
 
     await session.openMedia(media);
     expect(session.snapshot().timingAnalysis).toBe('running');
-    await session.setManualOffset(45); await session.nudge(0.01);
+    await session.setManualOffset(45); await session.setManualOffset(45.01);
     complete({ ...probe, streams: [{ ...probe.streams[0]!, packetRange: { startPtsSeconds: 0, endPtsSeconds: 2000 } }] });
     await session.settled();
     expect(player.state.offsetSeconds).toBeCloseTo(45.01);
@@ -472,7 +507,7 @@ describe('review workflow', () => {
   });
 });
 
-const videoProbe: MediaProbe = { formats: ['matroska'], streams: [{ type: 'video', codec: 'h264', index: 0, startPtsSeconds: 0, width: 1920, height: 1080 }, { type: 'audio', codec: 'aac', index: 1, startPtsSeconds: 0, durationSeconds: 2000 }] };
+const videoProbe: MediaProbe = { formats: ['matroska'], streams: [{ type: 'video', codec: 'h264', index: 0, startPtsSeconds: 0 }, { type: 'audio', codec: 'aac', index: 1, startPtsSeconds: 0, durationSeconds: 2000 }] };
 class VideoPlayer extends Player {
   override async send(command: PlaybackCommand): Promise<ProbeSnapshot> {
     await super.send(command);
@@ -501,7 +536,7 @@ describe('clock analysis application', () => {
   async function setup() {
     const { media, library } = await fixtures();
     const player = new VideoPlayer(), clocks = new ClockJobs();
-    const session = new ReviewSession(library, direct, player, () => {}, { inspect: async () => videoProbe }, undefined, clocks);
+    const session = new ReviewSession(library, direct, player, () => {}, { inspect: async () => videoProbe }, clocks);
 
     await session.openMedia(media); await session.selectTrack(1);
     await clocks.first;
@@ -515,10 +550,10 @@ describe('clock analysis application', () => {
     if (failure === 'unreadable') clocks.calls[0]!.complete({ fit: fitClock([]), readings: [], framesRead: 60 });
     else clocks.calls[0]!.fail(new Error(failure));
     await session.settled();
-    expect(flow.observe(facts())).toMatchObject({ state: 'alignment.manual', primary: 'Use this moment' });
+    expect(flow.observe(facts())).toMatchObject({ state: 'alignment.manual', primary: 'Done' });
     expect(session.snapshot().alignment).toBeUndefined();
     const editor = flow.observe(facts());
-    await session.seekPreview(15); await session.settled();
+    await session.enterTiming(); await session.settled();
     expect(clocks.calls).toHaveLength(1);
     expect(flow.observe(facts()).editorKey).toBe(editor.editorKey);
     await session.setManualOffset(3); flow.complete();
@@ -534,7 +569,7 @@ describe('clock analysis application', () => {
     Object.assign(data.media[identity.sha256]!, { clockSelection: { videoStreamIndex: 99, crop: { x: 0, y: 0, width: 1, height: 1 }, revision: 10 } });
     await writeFile(join(folder, 'data', 'library.json'), JSON.stringify(data));
     const restored = await ReviewLibrary.open(join(folder, 'data')), clocks = new ClockJobs();
-    const session = new ReviewSession(restored, direct, new VideoPlayer(), () => {}, { inspect: async () => videoProbe }, undefined, clocks);
+    const session = new ReviewSession(restored, direct, new VideoPlayer(), () => {}, { inspect: async () => videoProbe }, clocks);
     await session.openMedia(media); await session.selectTrack(1); await clocks.first;
     expect(clocks.calls[0]!.request).toMatchObject({ streamIndex: 0, force: false });
     expect(clocks.calls[0]!.request).not.toHaveProperty('crop');
@@ -545,9 +580,9 @@ describe('clock analysis application', () => {
     clocks.calls[1]!.complete(clockResult()); await session.settled();
     expect(session.snapshot().alignment?.source).toBe('video-clock');
   });
-  it('protects a manual anchor and nudge from a late automatic result', async () => {
+  it('protects a manual offset edit from a late automatic result', async () => {
     const { session, clocks, player, library } = await setup();
-    await session.setManualOffset(12); await session.nudge(0.01);
+    await session.setManualOffset(12); await session.setManualOffset(12.01);
     expect(clocks.calls[0]!.signal?.aborted).toBe(true);
     clocks.calls[0]!.complete(clockResult()); await session.settled();
     expect(player.state.offsetSeconds).toBeCloseTo(12.01);
@@ -558,7 +593,7 @@ describe('clock analysis application', () => {
     const player = new VideoPlayer(), clocks = new ClockJobs();
     let complete!: (identity: FileIdentity) => void;
     const pending = new Promise<FileIdentity>(resolve => { complete = resolve; });
-    const session = new ReviewSession(library, { identify: path => path === media ? pending : identifyFile(path) }, player, () => {}, { inspect: async () => videoProbe }, undefined, clocks);
+    const session = new ReviewSession(library, { identify: path => path === media ? pending : identifyFile(path) }, player, () => {}, { inspect: async () => videoProbe }, clocks);
 
     const identity = await identifyFile(media);
     // Simulate a saved association known by content at another, no-longer-used path.
@@ -575,17 +610,17 @@ describe('clock analysis application', () => {
     const clocks = new ClockJobs();
     let complete!: (identity: FileIdentity) => void;
     const pending = new Promise<FileIdentity>(resolve => { complete = resolve; });
-    const session = new ReviewSession(library, { identify: path => path === media ? pending : identifyFile(path) }, new VideoPlayer(), () => {}, { inspect: async () => videoProbe }, undefined, clocks);
+    const session = new ReviewSession(library, { identify: path => path === media ? pending : identifyFile(path) }, new VideoPlayer(), () => {}, { inspect: async () => videoProbe }, clocks);
     await session.openMedia(media);
     await session.analyzeVideo(); session.cancelClock();
     clocks.calls[0]!.complete(clockResult()); complete(await identifyFile(media)); await session.settled();
     expect(clocks.calls).toHaveLength(1);
     expect(session.snapshot().alignment).toBeUndefined();
   });
-  it('retains an existing alignment on a failed re-run, then commits a successful re-run with evidence and no old nudge', async () => {
+  it('retains an existing alignment on a failed re-run, then commits a successful re-run with evidence and no old correction', async () => {
     const { session, clocks, player, library } = await setup();
     clocks.calls[0]!.complete(clockResult()); await session.settled();
-    await session.nudge(0.1);
+    await session.setManualOffset(45.1);
     await session.analyzeVideo();
     clocks.calls[1]!.fail(new Error('Clock obscured')); await session.settled();
     expect(player.state.offsetSeconds).toBeCloseTo(45.1);
