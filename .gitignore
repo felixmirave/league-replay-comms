@@ -15,5 +15,8 @@ tests/fixtures/generated/
 # Local research
 /research/
 
+# Local comms recordings
+/recordings/
+
 # Local GitLab runner configuration; hosting is on GitHub
 /.gitlab-ci.yml
