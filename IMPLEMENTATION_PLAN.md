@@ -1,6 +1,6 @@
 # League replay comms implementation plan
 
-Updated: 2026-10-04. Version 0.3.0 implements the guided recording workflow, automatic playback, sound filters, and fast seeking. Current-League, clean-Windows, and physical-timing acceptance remain open. See [implementation and validation status](tests/acceptance/STATUS.md).
+Updated: 2026-10-04. Version 0.3.1 implements the guided recording workflow, automatic playback, sound filters, and fast seeking. Current-League, clean-Windows, and physical-timing acceptance remain open. See [implementation and validation status](tests/acceptance/STATUS.md).
 
 This document records the implemented architecture, product scope, and outstanding acceptance requirements. Source code defines current behavior; the accuracy targets below remain requirements rather than measured capabilities.
 

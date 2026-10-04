@@ -2,7 +2,7 @@
 
 A Windows companion for listening to original-match comms while reviewing a replay in League. It follows the replay's clock, pause state, speed, and jumps automatically once a recording and its timing are ready.
 
-Version 0.3.0 includes track selection, automatic video-clock alignment, manual timing correction, sound filters, and a saved recording library. Recordings stay on your computer and are opened read-only. The portable development executable is unsigned; Windows/current-League acceptance and physical timing targets remain open. See [current validation status](tests/acceptance/STATUS.md).
+Version 0.3.1 includes track selection, automatic video-clock alignment, manual timing correction, sound filters, and a saved recording library. Recordings stay on your computer and are opened read-only. The portable development executable is unsigned; Windows/current-League acceptance and physical timing targets remain open. See [current validation status](tests/acceptance/STATUS.md).
 
 ## Review workflow
 
@@ -88,7 +88,7 @@ sh scripts/linux.sh npm run dev:verify
 | `npm run verify:artifact` | Embedded icons and exact extracted-payload comparison against the staged build |
 | `npm run validate:windows` | Automated build and source/portable desktop workflows on Windows |
 
-UI checks require a display; native/OCR checks require prepared resources. Details and overrides are in [development verification](tests/acceptance/DEV_ENVIRONMENT.md#individual-checks-and-prerequisites). Packaging writes `release/LeagueReplayComms-0.3.0-x64.exe`; artifact verification writes checksum and payload records beside it. These records do not establish Windows execution or physical audio accuracy.
+UI checks require a display; native/OCR checks require prepared resources. Details and overrides are in [development verification](tests/acceptance/DEV_ENVIRONMENT.md#individual-checks-and-prerequisites). Packaging writes `release/LeagueReplayComms-0.3.1-x64.exe`; artifact verification writes checksum and payload records beside it. These records do not establish Windows execution or physical audio accuracy.
 
 Run Windows validation from an unelevated interactive desktop. The [Windows automation guide](tests/acceptance/AUTOMATED_WINDOWS.md) documents stages, isolation, packaging details, and artwork maintenance. Browser filter verification is separate from both automated Windows and Linux pipelines.
 

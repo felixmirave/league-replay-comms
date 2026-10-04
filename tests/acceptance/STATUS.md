@@ -1,6 +1,6 @@
 # Implementation and validation status
 
-Updated: 2026-10-04. Version 0.3.0 implements sound filters, fast seeking, and automatic replay following. Windows execution, current-League integration, and physical timing remain unverified.
+Updated: 2026-10-04. Version 0.3.1 implements sound filters, fast seeking, and automatic replay following. Windows execution, current-League integration, and physical timing remain unverified.
 
 ## Current behavior
 
@@ -24,7 +24,7 @@ After the mute icon change, all eight volume UI checks passed in Electron under 
 
 The standalone Chromium filter check passed real-model, graph/prototype parity, combined-filter, seek, speed, track-replacement, EOF, suppression-failure fallback, and renderer-control cases before the icon change. This command is separate from `verify:linux` and `validate:windows`; it is not evidence of Windows device behavior.
 
-The latest executable includes source commit `b6da184` and has SHA-256 `d5c6bbda63aafbc810dcb94b0ddada02ae912848bf91e61dacfa8f0794c65b11`. Payload verification matched all 111 extracted files to the staged build/resources and checked both executables' icon resolutions. The executable has not been run on clean Windows. Generated reports and binaries are ignored local artifacts, not checked-in release evidence.
+The most recently verified executable is version 0.3.0, includes source commit `b6da184` and has SHA-256 `d5c6bbda63aafbc810dcb94b0ddada02ae912848bf91e61dacfa8f0794c65b11`. Payload verification matched all 111 extracted files to the staged build/resources and checked both executables' icon resolutions. The executable has not been run on clean Windows. The 0.3.1 version bump has not yet been packaged or verified. Generated reports and binaries are ignored local artifacts, not checked-in release evidence.
 
 ## Findings to carry into Windows acceptance
 
