@@ -20,6 +20,7 @@ import { WindowsConfigEdits } from '../platform/config-edit';
 import { PreferenceEdits } from './preference-edits';
 import { diagnosticExport } from './diagnostics';
 import { GuidedWorkflow } from './workflow';
+import { developmentReplayArguments } from './development-replay';
 
 app.setName('LeagueReplayComms');
 if (process.platform === 'win32') app.setAppUserModelId('local.leaguereplaycomms.desktop');
@@ -80,7 +81,7 @@ function publish(): void { if (window && !window.isDestroyed()) window.webConten
 app.on('second-instance', () => { window?.restore(); window?.focus(); });
 async function initialize(resources: string): Promise<void> {
   const testOutput = !app.isPackaged && process.env.COMMS_TEST_NULL_AUDIO === '1' ? '--test-null-audio' : '';
-  worker = utilityProcess.fork(join(__dirname, '../sync/entry.cjs'), [resources, testOutput], { serviceName: 'Replay comms synchronization', stdio: 'pipe' });
+  worker = utilityProcess.fork(join(__dirname, '../sync/entry.cjs'), [resources, testOutput, ...developmentReplayArguments(app.isPackaged, process.env)], { serviceName: 'Replay comms synchronization', stdio: 'pipe' });
   worker.on('message', (message: WorkerResponse) => {
     if (message.type === 'snapshot') {
       snapshot = message.snapshot;

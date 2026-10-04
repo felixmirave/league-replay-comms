@@ -6,10 +6,12 @@ export interface ReplayTransport { get(path: '/replay/playback' | '/replay/game'
 
 export class LocalReplayTransport implements ReplayTransport {
   private readonly agent: https.Agent;
-  constructor(certificate: string) { this.agent = new https.Agent({ ca: certificate, keepAlive: true, maxSockets: 2 }); }
+  constructor(certificate: string, private readonly port = 2999) {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid Replay API port');
+    this.agent = new https.Agent({ ca: certificate, keepAlive: true, maxSockets: 2 }); }
   get(path: '/replay/playback' | '/replay/game', signal: AbortSignal): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      const request = https.get({ host: '127.0.0.1', port: 2999, path, agent: this.agent, signal }, response => {
+      const request = https.get({ host: '127.0.0.1', port: this.port, path, agent: this.agent, signal }, response => {
         if (response.statusCode !== 200) { response.resume(); reject(new Error(`Replay API returned HTTP ${response.statusCode}`)); return; }
         const chunks: Buffer[] = [];
         let size = 0;
