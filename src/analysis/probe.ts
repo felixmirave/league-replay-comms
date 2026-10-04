@@ -11,7 +11,7 @@ const numeric = z.union([z.string(), z.number()]).optional();
 const rawSchema = z.object({
   format: z.object({ format_name: z.string(), start_time: numeric, duration: numeric }).optional(),
   streams: z.array(z.object({ index: z.number().int().nonnegative(), codec_type: z.string(), codec_name: z.string().optional(),
-    start_time: numeric, duration: numeric,
+    start_time: numeric, duration: numeric, channels: z.number().int().positive().optional(),
     disposition: z.object({ attached_pic: z.number().optional() }).optional(), tags: z.record(z.string(), z.string()).optional(),
   })).max(256),
 });
@@ -31,7 +31,7 @@ export function parseProbe(raw: unknown): MediaProbe {
     if ((stream.codec_type !== 'audio' && stream.codec_type !== 'video') || stream.disposition?.attached_pic) return [];
     const tags = Object.fromEntries(Object.entries(stream.tags ?? {}).map(([key, value]) => [key.toLowerCase(), value]));
     const duration = number(stream.duration);
-    return [{ index: stream.index, type: stream.codec_type, codec: stream.codec_name ?? 'unknown', title: tags.title, language: tags.language,
+    return [{ index: stream.index, type: stream.codec_type, codec: stream.codec_name ?? 'unknown', channels: stream.channels, title: tags.title, language: tags.language,
       startPtsSeconds: number(stream.start_time), durationSeconds: duration !== undefined && duration > 0 ? duration : undefined,
       // In ffmpeg's Matroska output this tag is the ending PTS, not a duration
       // relative to the first packet. Validate other muxers with decoded evidence.

@@ -80,3 +80,13 @@ dl { display: grid; grid-template-columns: 130px 1fr; gap: 10px; font-size: 13px
 .timing-steps button { display: flex; align-items: center; gap: 10px; }
 .timing-steps span { font-size: 22px; line-height: 1; }
 .timing-status { min-height: 3em; }
+.sound-filters { margin: 20px 0 0; border-top: 1px solid #e8edf3; }
+.sound-filter { padding: 14px 0 10px; }
+.sound-filter + .sound-filter { border-top: 1px solid #e8edf3; }
+.filter-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.filter-heading label { font-weight: 550; }
+.filter-value { color: #526176; font-size: 12px; font-variant-numeric: tabular-nums; }
+.filter-hint { font-size: 12px; margin: 4px 0 8px 24px; line-height: 1.4; }
+.sound-filter > input { display: block; width: calc(100% - 24px); margin: 0 0 0 24px; }
+.sound-filter > input:disabled { opacity: .4; }
+.filter-endpoints { display: flex; justify-content: space-between; margin: 3px 0 0 24px; color: #526176; font-size: 11px; }

@@ -1,3 +1,4 @@
+import type { FilterSettings } from '../shared/filters';
 import { basename } from 'node:path';
 import { fileVersion } from '../library/identity';
 import { sameFileVersion, type Alignment, type FileIdentity, type FileVersion } from '../library/model';
@@ -32,8 +33,12 @@ export class ReviewSession {
   private readonly edits: AlignmentEdits;
   private exitBarrier?: Promise<void>;
   private releaseExit?: () => void;
-  private volumeTimer?: ReturnType<typeof setTimeout>;
-  private volumeSave: Promise<void> = Promise.resolve();
+  private audioPreferenceTimer?: ReturnType<typeof setTimeout>;
+  private audioPreferenceSave: Promise<void> = Promise.resolve();
+  private filterTimer?: ReturnType<typeof setTimeout>;
+  private filterPlayback: Promise<void> = Promise.resolve();
+  private pendingFilters?: FilterSettings;
+  private filterRevision = 0;
 
   constructor(private readonly library: ReviewLibrary, private readonly identities: IdentityJobs, private readonly playback: PlaybackPort, private readonly changed: () => void, private readonly prober?: MediaProber, private readonly clocks?: VideoClockJobs, private readonly preferences = new PreferenceEdits(library)) {
     this.edits = new AlignmentEdits(library);
@@ -45,14 +50,16 @@ export class ReviewSession {
       saveError: [this.edits.message(), this.preferences.message()].filter(Boolean).join('\n') || undefined, unsavedAlignments: this.edits.count, unsavedPreferences: this.preferences.count });
   }
   async settled(): Promise<void> {
+    if (!this.closed) await this.flushFilters();
+    await this.filterPlayback;
     do { await this.changes; await Promise.all([...this.jobs]); } while (this.jobs.size);
     await this.changes;
-    if (!this.closed) await this.flushVolume().catch(() => undefined);
-    await this.volumeSave; await this.library.flush(); await this.clocks?.flush?.();
+    if (!this.closed) await this.flushAudioPreferences().catch(() => undefined);
+    await this.audioPreferenceSave; await this.library.flush(); await this.clocks?.flush?.();
   }
   close(): void {
     this.closed = true;
-    clearTimeout(this.volumeTimer);
+    clearTimeout(this.audioPreferenceTimer); clearTimeout(this.filterTimer);
     this.resumeAfterExit();
     this.mediaAbort?.abort(); this.searchAbort?.abort();
     this.clockAbort?.abort();
@@ -61,6 +68,7 @@ export class ReviewSession {
     // Freeze only after changes already accepted by this session have completed.
     // Hash/OCR completions may queue behind this barrier until cancel or close.
     this.exitBarrier = new Promise(resolve => { this.releaseExit = resolve; });
+    await this.flushFilters();
     await this.retryExitSave();
   }); }
   async retryExitSave(): Promise<void> {
@@ -124,13 +132,29 @@ export class ReviewSession {
     catch (error) { this.runtimeId = undefined; throw error; }
   }); }
   retrySave(): Promise<void> { return this.mutate(() => this.retryPending()); }
+  setFilters(filters: FilterSettings): Promise<void> { return this.mutate(async () => {
+    const previous = this.preferences.settings().filters;
+    this.preferences.stageFilters(filters);
+    this.view.filterError = undefined;
+    this.refresh();
+    clearTimeout(this.audioPreferenceTimer);
+    this.audioPreferenceTimer = setTimeout(() => { void this.flushAudioPreferences().catch(() => undefined); }, 250);
+    this.pendingFilters = structuredClone(filters); this.filterRevision++;
+    clearTimeout(this.filterTimer);
+    const onlyAttenuationChanged = filters.noise.enabled && previous.noise.enabled
+      && filters.noise.attenuation !== previous.noise.attenuation
+      && filters.radio.enabled === previous.radio.enabled && filters.radio.strength === previous.radio.strength
+      && filters.position.enabled === previous.position.enabled && filters.position.pan === previous.position.pan;
+    if (onlyAttenuationChanged) this.filterTimer = setTimeout(() => { void this.flushFilters(); }, 150);
+    else await this.flushFilters();
+  }); }
   setVolume(volume: number): Promise<void> { return this.mutate(async () => {
     // Publish accepted intent before acknowledging playback. Persistence must
     // neither delay the next slider input nor flash a save-failure warning.
     this.preferences.stageVolume(volume);
     this.refresh();
-    clearTimeout(this.volumeTimer);
-    this.volumeTimer = setTimeout(() => { void this.flushVolume().catch(() => undefined); }, 250);
+    clearTimeout(this.audioPreferenceTimer);
+    this.audioPreferenceTimer = setTimeout(() => { void this.flushAudioPreferences().catch(() => undefined); }, 250);
     await this.playback.send({ type: 'volume', volume });
   }); }
   addFolder(path: string): Promise<void> { return this.mutate(async () => {
@@ -171,6 +195,7 @@ export class ReviewSession {
     if (this.playback.snapshot().media) await this.playback.send({ type: 'preview', paused: true });
     const cachedIdentity = verified ?? this.library.cachedIdentity(path, version);
     const probe = (cachedIdentity && this.library.snapshot().media[cachedIdentity.sha256]?.probe?.data) ?? await this.prober?.inspect(path, abort.signal);
+    await this.playback.send({ type: 'filters', filters: this.preferences.settings().filters });
     let opened = await this.playback.send({ type: 'load', path, probe });
     if (!opened.media) throw new Error('Recording did not open');
     if (!sameFileVersion(version, await fileVersion(path))) throw new Error('Recording changed while opening. Reopen it before restoring an alignment.');
@@ -374,18 +399,32 @@ export class ReviewSession {
     finally { this.changed(); }
   }
   private async retryPending(): Promise<void> {
-    clearTimeout(this.volumeTimer);
-    await this.volumeSave;
+    clearTimeout(this.audioPreferenceTimer);
+    await this.audioPreferenceSave;
     const results = await Promise.allSettled([this.edits.retry(), this.preferences.retry()]);
     this.refresh();
     const errors = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
     if (errors.length) throw new AggregateError(errors.map(result => result.reason), this.snapshot().saveError);
   }
-  private flushVolume(): Promise<void> {
-    clearTimeout(this.volumeTimer);
-    const operation = this.volumeSave.then(() => this.preferences.flushVolume()).finally(() => this.refresh());
+  private flushFilters(): Promise<void> {
+    clearTimeout(this.filterTimer);
+    const filters = this.pendingFilters, revision = this.filterRevision;
+    this.pendingFilters = undefined;
+    if (!filters) return this.filterPlayback;
+    const operation = this.filterPlayback.then(async () => {
+      if (revision !== this.filterRevision || this.closed) return;
+      await this.playback.send({ type: 'filters', filters });
+    });
+    this.filterPlayback = operation.catch(error => {
+      if (revision === this.filterRevision) this.view.filterError = error instanceof Error ? error.message : String(error);
+    }).finally(() => this.changed());
+    return this.filterPlayback;
+  }
+  private flushAudioPreferences(): Promise<void> {
+    clearTimeout(this.audioPreferenceTimer);
+    const operation = this.audioPreferenceSave.then(() => this.preferences.flushAudioPreferences()).finally(() => this.refresh());
     // Errors stay attached to the retained preference and are published above.
-    this.volumeSave = operation.catch(() => undefined);
+    this.audioPreferenceSave = operation.catch(() => undefined);
     return operation;
   }
   private refresh(): void {
@@ -395,7 +434,7 @@ export class ReviewSession {
       ...Object.values(data.pendingImports).map(file => ({ id: `pending:${file.id}`, name: basename(file.path), path: file.path, updatedAt: file.createdAt, pending: true })),
     ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const settings = this.preferences.settings();
-    this.view.folders = settings.mediaFolders; this.view.volume = settings.volume; this.changed();
+    this.view.folders = settings.mediaFolders; this.view.volume = settings.volume; this.view.filters = settings.filters; this.changed();
   }
   private mutate(operation: () => Promise<void>): Promise<void> {
     const result = this.changes.then(async () => { await this.exitBarrier; if (this.closed) throw new Error('Review session closed'); return operation(); });

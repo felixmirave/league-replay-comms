@@ -57,10 +57,19 @@ export async function verifyConnected(folder: string, recording?: { path: string
       await session.selectFile(fixture);
       await page.getByRole('button', { name: 'Choose recording', exact: true }).click();
       await chooseTrack(2);
+      // Tone codes verify timing and volume; speech filters intentionally remove
+      // these signals. Disable them through the real controls for this baseline.
+      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      for (const name of ['Radio voice', 'Noise suppression', 'Sound position']) {
+        const toggle = page.getByRole('dialog').getByRole('switch', { name, exact: true });
+        if (await toggle.isChecked()) await toggle.uncheck();
+      }
+      await waitSnapshot(page, state => !state.library?.filters?.radio.enabled && !state.library?.filters?.noise.enabled && !state.library?.filters?.position.enabled && state.library?.unsavedPreferences === 0);
+      await page.getByRole('button', { name: 'Close settings', exact: true }).click();
       await page.getByLabel('Recording offset (seconds)', { exact: true }).waitFor();
       await setAlignment(2);
       const state = await waitSnapshot(page, state => state.workflow?.state === 'ready');
-      assert.equal(state.media!.selectedTrackId, 2); assert.equal(state.audioOutput?.driver, 'pulse');
+      assert.equal(state.media!.selectedTrackId, 2); assert.equal(state.audioOutput?.driver, 'Web Audio');
       return { media: state.media, output: state.audioOutput };
     });
     await checkpoint('start-listening', async () => {
@@ -132,6 +141,7 @@ export async function verifyConnected(folder: string, recording?: { path: string
       await page.locator('.recent').filter({ hasText: 'coded-tracks.mka' }).first().click();
       const state = await waitSnapshot(page, state => state.library?.recordingReady === true && state.workflow?.state === 'ready');
       assert.equal(state.media!.selectedTrackId, track); assert.equal(state.library!.volume, 50);
+      assert(state.library!.filters && !state.library!.filters.radio.enabled && !state.library!.filters.noise.enabled && !state.library!.filters.position.enabled, 'Filter baseline must persist across restart');
       assert.equal(state.library!.alignment!.baseOffsetSeconds + state.library!.alignment!.correctionSeconds, offset);
       assert(!state.library!.boundToRuntime); await silent();
       session.simulator.timeline.set({ paused: false }); await follow(); await delay(500); return audible();

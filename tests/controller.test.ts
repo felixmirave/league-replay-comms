@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Synchronizer } from '../src/sync/controller';
+import { Synchronizer, initialControllerConfig } from '../src/sync/controller';
 import type { AudioSample, PlaybackAction, ReplaySample } from '../src/shared/domain';
 
 const replay = (now: number, time = now, extra: Partial<ReplaySample> = {}): ReplaySample => ({
@@ -48,6 +48,56 @@ describe('replay following', () => {
     expect(seek.targetSeconds).toBeCloseTo(45.25 + change);
     const completion = sync.update({ type: 'seek-complete', generation: seek.generation, sample: audio(.25, seek.targetSeconds, { paused: true }) }, .25);
     expect(completion).toContainEqual({ type: 'pause', paused: false });
+    expect(sync.snapshot().state).toBe('following');
+  });
+
+  it('resumes after preparation takes longer than the resync threshold', () => {
+    const { sync, seek: first } = start();
+    let seek = first;
+    let now = 0.1;
+    let resumed = false;
+    for (let attempt = 0; attempt < 4 && !resumed; attempt++) {
+      // League keeps advancing while the filtered recording is prepared.
+      for (let tick = 0; tick < 6; tick++) {
+        now += 0.05;
+        sync.update({ type: 'replay', sample: replay(now) }, now);
+      }
+      const actions = sync.update({ type: 'seek-complete', generation: seek.generation,
+        sample: audio(now, seek.targetSeconds, { paused: true }) }, now);
+      resumed = actions.some(action => action.type === 'pause' && !action.paused);
+      const next = actions.find(action => action.type === 'seek');
+      if (next?.type === 'seek') seek = next;
+      else if (!resumed) {
+        for (let tick = 0; tick < 10 && !resumed; tick++) {
+          now += 0.025;
+          const nextActions = sync.update({ type: 'replay', sample: replay(now) }, now);
+          resumed = nextActions.some(action => action.type === 'pause' && !action.paused);
+          const nextSeek = nextActions.find(action => action.type === 'seek');
+          if (nextSeek?.type === 'seek') { seek = nextSeek; break; }
+          sync.update({ type: 'audio', sample: audio(now, seek.targetSeconds, { paused: true }) }, now);
+        }
+      }
+    }
+    expect(resumed).toBe(true);
+    expect(sync.snapshot().state).toBe('following');
+  });
+
+  it('accounts for the measured output queue before starting playback', () => {
+    const { sync, seek } = start();
+    const actions = sync.update({ type: 'seek-complete', generation: seek.generation,
+      sample: audio(.1, seek.targetSeconds, { paused: true, startDelaySeconds: .2 }) }, .1);
+    const prepared = actions.find(action => action.type === 'seek');
+    if (prepared?.type !== 'seek') throw new Error('Expected output latency compensation');
+    expect(prepared.targetSeconds).toBeCloseTo(45.3);
+    const ready = sync.update({ type: 'seek-complete', generation: prepared.generation,
+      sample: audio(.1, prepared.targetSeconds, { paused: true, startDelaySeconds: .2 }) }, .1);
+    expect(ready).toContainEqual({ type: 'pause', paused: false });
+    // A replay update can arrive before the first playing audio observation.
+    const starting = sync.update({ type: 'replay', sample: replay(.11) }, .11);
+    expect(starting).not.toContainEqual({ type: 'pause', paused: true });
+    // The sample reaches the output 200 ms later, exactly where League now is.
+    sync.update({ type: 'replay', sample: replay(.3) }, .3);
+    sync.update({ type: 'audio', sample: audio(.3, 45.3, { startDelaySeconds: .2 }) }, .3);
     expect(sync.snapshot().state).toBe('following');
   });
 
@@ -154,4 +204,17 @@ describe('replay following', () => {
     expect(actions.some(action => action.type === 'seek')).toBe(true);
     expect(actions).not.toContainEqual({ type: 'pause', paused: false });
   });
+});
+
+it('seeks a reported jump immediately when settling delay is disabled, while respecting League seeking', () => {
+  const sync = new Synchronizer({ ...initialControllerConfig, settleSeconds: 0 });
+  sync.update({ type: 'replay', sample: replay(0) }, 0);
+  sync.update({ type: 'bind', binding: { replaySessionId: 'match-a', offsetSeconds: 45, startSeconds: 0, endSeconds: 4000 } }, 0);
+  const seek = sync.update({ type: 'mode', mode: 'follow' }, 0).find(action => action.type === 'seek');
+  if (seek?.type !== 'seek') throw new Error('Expected immediate initial seek');
+  sync.update({ type: 'seek-complete', generation: seek.generation, sample: audio(0, 45, { paused: true }) }, 0);
+  const moving = sync.update({ type: 'replay', sample: replay(.1, 500, { seeking: true }) }, .1);
+  expect(moving.some(action => action.type === 'seek')).toBe(false);
+  const settled = sync.update({ type: 'replay', sample: replay(.12, 500.02) }, .12);
+  expect(settled.find(action => action.type === 'seek')).toMatchObject({ targetSeconds: 545.02 });
 });

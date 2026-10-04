@@ -33,12 +33,12 @@ export class PlaybackRecovery {
     this.state = 'active'; this.actions.ready('runtime'); this.actions.changed();
   }
 
-  suspend(reason = 'System suspended'): void {
+  suspend(reason = 'System suspended', scope: RecoveryScope = 'runtime'): void {
     if (this.state === 'suspended') return;
     this.generation++;
     this.state = 'suspended';
-    this.scope = 'runtime';
-    this.actions.interrupt(reason, 'runtime');
+    this.scope = scope;
+    this.actions.interrupt(reason, scope);
     this.actions.changed();
   }
 

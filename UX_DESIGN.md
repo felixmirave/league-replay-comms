@@ -104,7 +104,9 @@ For video recordings, show **Detect offset from video clock** above the offset f
 
 ## While listening and recovering
 
-The listening screen is small: recording, **Following League**, replay time, volume, **Stop listening**, and **Adjust timing**. It has no duplicate replay transport or always-visible waveform.
+The listening screen is small: recording, **Following League**, replay time, volume, three sound filters, **Stop listening**, and **Adjust timing**. Place the sound filters directly below volume. Each row has a toggle, a slider, and one short explanation. Use **Radio voice** (Lighter–Stronger, no percentages), **Noise suppression** (Less–More), and **Sound position** (Left–Right). Keep disabled slider values and share settings with Settings → Recording. Omit numeric readouts; indicate Center when the position is centered. Announce distinct slider values to screen readers. Filter edits leave listening available, and filter failures appear beside the controls in either location.
+
+It has no duplicate replay transport or always-visible waveform.
 
 Pause, seeking, resynchronizing, and outside-recording conditions are status variations within this screen. They do not navigate the user back through setup. For example: **Replay paused**, **Catching up after a jump…**, or **This recording starts at game time 02:00**. Do not label these as errors.
 

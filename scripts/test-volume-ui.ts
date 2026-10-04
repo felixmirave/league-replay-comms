@@ -59,7 +59,7 @@ beforeEach(async () => {
   await paint();
 });
 
-const slider = () => page.locator('.task input[type=range]');
+const slider = () => page.getByRole('slider', { name: 'Comms volume' }).first();
 const settingsSlider = () => page.getByRole('dialog').getByRole('slider', { name: 'Comms volume' });
 const stop = () => page.getByRole('button', { name: 'Stop listening', exact: true });
 const paint = () => page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));

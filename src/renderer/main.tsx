@@ -1,3 +1,4 @@
+import { SoundFilters, useFilters } from './sound-filters';
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initialSnapshot, type DesktopInterface, type ProbeSnapshot, type UserCommand } from '../shared/protocol';
@@ -33,7 +34,7 @@ const descriptions: Record<WorkflowState, string> = {
   'alignment.manual': 'Listen while watching the replay, then move the recording back or forward until the comms match.',
   ready: 'Comms will follow playback, pauses, speed changes, and jumps in League.',
   'ready.offline': 'Your recording and timing are saved locally when identification finishes. Connect to League before listening.',
-  listening: 'Control playback in League. You can leave this window in the background.', 'audio.error': 'Your recording and timing are kept. Check your audio output, then try again.',
+  listening: 'Control playback in League. You can leave this window in the background.', 'audio.error': 'Your recording and timing are kept. Retry audio to reconnect playback.',
   'application.error': 'Close and reopen the application after resolving the problem below.',
 };
 function App() {
@@ -48,6 +49,8 @@ function App() {
   const heading = useRef<HTMLHeadingElement>(null), settingsDialog = useRef<HTMLDialogElement>(null);
   const flow = snapshot.workflow, state = flow?.state ?? (snapshot.startup === 'loading' ? 'starting' : 'checking'), library = snapshot.library;
   const [volume, changeVolume] = useVolume(library?.volume ?? 100, window.review.command, setError);
+  const [filters, changeFilters] = useFilters(library?.filters, window.review.command, setError);
+  const filterError = library?.filterError ?? (snapshot.suppressionError ? 'Noise suppression is unavailable. Playing original audio.' : undefined);
   const connected = !!snapshot.replay && !snapshot.connectionError;
   const busy = snapshot.busy || pending > 0;
   const installation = snapshot.setup?.installations.find(value => value.root === snapshot.setup?.selectedRoot);
@@ -92,7 +95,7 @@ function App() {
     catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { setPending(count => count - 1); }
   };
-  const visibleError = error || (setupState ? snapshot.setup?.error : library?.error) || snapshot.error || snapshot.audioOutput?.error;
+  const visibleError = error || (setupState ? snapshot.setup?.error : library?.error) || snapshot.error || snapshot.audioOutput?.error || (snapshot.sync.state === 'error' ? snapshot.sync.reason : undefined);
   if (state === 'starting') return <main className="startup" aria-busy="true"><section className="startup-card" role="status">
     <img className="startup-logo" src="./icon.png" width="104" height="104" alt="" />
     <div className="startup-copy"><strong>League Replay Comms</strong><div className="startup-message"><span className="startup-spinner" aria-hidden="true" /><h1>{titles.starting}</h1></div><p>{descriptions.starting}</p></div>
@@ -114,7 +117,7 @@ function App() {
       {(state === 'alignment.analyzing' || state === 'recording.identifying') && <><p className="progress" role="status">{library?.clock?.message ?? 'Identifying the recording before restoring or reading its clock…'}</p>{library?.clock && <p className="muted">{library.clock.framesRead} frames checked</p>}<button className="text-button" onClick={() => void command({ type: 'workflow', action: 'edit' })}>Align manually</button></>}
       {editing && snapshot.media && <TimingEditor key={`${library?.mediaGeneration}:${flow?.editorKey}`} snapshot={snapshot} busy={busy} send={window.review.command} />}
       {state === 'ready' && <div className="notice"><strong>{snapshot.media?.name}</strong><p>{library?.alignment?.source === 'video-clock' ? 'Timing aligned from the recorded clock.' : 'Your timing is ready.'}</p></div>}
-      {state === 'listening' && <><div className="replay-clock" aria-label="Replay time">{time(snapshot.replay?.timeSeconds)} <small>{snapshot.replay?.speed ?? 1}×</small></div>{snapshot.sync.state === 'outside-recording' && <p>This replay position is outside the recorded audio. Comms will resume when the replay returns to the recording.</p>}{snapshot.sync.state === 'unsupported-speed' && <p>Change the replay speed in League. Comms are silent until playback is supported.</p>}<label className="volume">Comms volume<input type="range" min="0" max="100" value={volume} onChange={event => void changeVolume(Number(event.target.value))} /></label></>}
+      {state === 'listening' && <><div className="replay-clock" aria-label="Replay time">{time(snapshot.replay?.timeSeconds)} <small>{snapshot.replay?.speed ?? 1}×</small></div>{snapshot.sync.state === 'outside-recording' && <p>This replay position is outside the recorded audio. Comms will resume when the replay returns to the recording.</p>}{snapshot.sync.state === 'unsupported-speed' && <p>Change the replay speed in League. Comms are silent until playback is supported.</p>}<label className="volume">Comms volume<input type="range" min="0" max="100" value={volume} onChange={event => void changeVolume(Number(event.target.value))} /></label><SoundFilters filters={filters} onChange={changeFilters} error={filterError} /></>}
       {!editing && flow?.primary && <div className="actions"><button className="primary" disabled={busy} onClick={primary}>{flow.primary}</button></div>}
       <div className="secondary">
         {(setupState || state === 'replay.wait') && <button className="text-button" onClick={() => void command({ type: 'workflow', action: 'prepare' })}>Prepare a recording without League</button>}
@@ -128,9 +131,9 @@ function App() {
     <dialog ref={settingsDialog} onClose={() => setSettings(false)} aria-labelledby="settings-title"><div className="section-title"><h2 id="settings-title">Settings</h2><button onClick={() => setSettings(false)}>Close settings</button></div>
       {error && <div role="alert" className="error">{error}</div>}
       <SetupPanel setup={snapshot.setup} connected={connected} disabled={busy} command={command} />
-      {library?.recordingReady && <section><h3>Recording</h3><label className="volume">Comms volume<input type="range" min="0" max="100" value={volume} onChange={event => void changeVolume(Number(event.target.value))} /></label><button onClick={() => { setSettings(false); void command({ type: 'workflow', action: 'change-track' }); }}>Change audio track</button>{snapshot.media?.probe?.streams.some(stream => stream.type === 'video') && <button onClick={() => { setSettings(false); void command({ type: 'analyze-clock' }); }}>Read game clock again</button>}</section>}
+      {library?.recordingReady && <section><h3>Recording</h3><label className="volume">Comms volume<input type="range" min="0" max="100" value={volume} onChange={event => void changeVolume(Number(event.target.value))} /></label><SoundFilters filters={filters} onChange={changeFilters} error={filterError} /><button onClick={() => { setSettings(false); void command({ type: 'workflow', action: 'change-track' }); }}>Change audio track</button>{snapshot.media?.probe?.streams.some(stream => stream.type === 'video') && <button onClick={() => { setSettings(false); void command({ type: 'analyze-clock' }); }}>Read game clock again</button>}</section>}
       <section><h3>Recording folders</h3><p>Search these folders if a saved recording moves.</p>{library?.folders.map(path => <p className="filename" key={path}>{path}</p>)}<button onClick={() => void command({ type: 'add-media-folder' })}>Add media folder</button></section>
-      <details><summary>Timing diagnostics</summary><p>Physical accuracy has not yet been validated against League.</p><dl><dt>Controller</dt><dd>{snapshot.sync.state}</dd><dt>Connection</dt><dd>{snapshot.connectionError ?? (connected ? 'Connected' : 'Waiting')}</dd><dt>Output driver</dt><dd>{snapshot.audioOutput?.driver ?? 'Unavailable'}</dd><dt>Offset</dt><dd>{snapshot.offsetSeconds?.toFixed(3) ?? 'Unset'} s</dd><dt>Estimated error</dt><dd>{snapshot.sync.errorSeconds === undefined ? '—' : `${(snapshot.sync.errorSeconds * 1000).toFixed(1)} ms`}</dd></dl><label className="checkbox"><input type="checkbox" checked={includePaths} onChange={event => setIncludePaths(event.target.checked)} />Include local file paths in exported trace</label><button onClick={() => void command({ type: 'export-trace', includePaths })}>Export timing trace</button><button onClick={() => void command({ type: 'retry' })}>Retry audio</button></details>
+      <details><summary>Timing diagnostics</summary><p>Physical accuracy has not yet been validated against League.</p><dl><dt>Controller</dt><dd>{snapshot.sync.state}</dd>{snapshot.sync.state === 'error' && <><dt>Failure reason</dt><dd>{snapshot.sync.reason}</dd></>}<dt>Connection</dt><dd>{snapshot.connectionError ?? (connected ? 'Connected' : 'Waiting')}</dd><dt>Output driver</dt><dd>{snapshot.audioOutput?.driver ?? 'Unavailable'}</dd><dt>Offset</dt><dd>{snapshot.offsetSeconds?.toFixed(3) ?? 'Unset'} s</dd><dt>Estimated error</dt><dd>{snapshot.sync.errorSeconds === undefined ? '—' : `${(snapshot.sync.errorSeconds * 1000).toFixed(1)} ms`}</dd></dl><label className="checkbox"><input type="checkbox" checked={includePaths} onChange={event => setIncludePaths(event.target.checked)} />Include local file paths in exported trace</label><button onClick={() => void command({ type: 'export-trace', includePaths })}>Export timing trace</button><button onClick={() => void command({ type: 'retry' })}>Retry audio</button></details>
       {!!library?.warnings.length && <section><h3>Library notices</h3>{library.warnings.map(value => <p key={value}>{value}</p>)}</section>}
       <p><button className="text-button" onClick={() => void command({ type: 'open-notices' })}>Third-party notices</button></p>
     </dialog>

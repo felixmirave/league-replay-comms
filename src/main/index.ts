@@ -1,3 +1,6 @@
+import { playbackRequestTimeoutMs } from '../shared/playback-timeouts';
+import { AudioHost } from './audio-host';
+import type { AudioRequest } from '../shared/audio-engine';
 import { app, BrowserWindow, dialog, ipcMain, powerMonitor, shell, utilityProcess, type UtilityProcess } from 'electron';
 import { dirname, isAbsolute, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
@@ -37,6 +40,7 @@ if (profile !== undefined) {
 if (!app.requestSingleInstanceLock()) app.exit(0);
 let window: BrowserWindow | undefined;
 let worker: UtilityProcess | undefined;
+let audioHost: AudioHost | undefined;
 let snapshot: ProbeSnapshot = structuredClone(initialSnapshot);
 let sequence = 0;
 let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -55,16 +59,17 @@ let foregroundBusy = false;
 let setup: LeagueSetup | undefined;
 const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
 
-function request(command: Exclude<WorkerRequest, { type: 'heartbeat' | 'power' }>['command']): Promise<unknown> {
+function request(command: Extract<WorkerRequest, { command: unknown }>['command']): Promise<unknown> {
   // Previously accepted commands still drain, but closing must not restart audio.
   if (preparingExit && (command.type === 'follow' || (command.type === 'preview' && !command.paused))) command = { type: 'preview', paused: true };
   if (!worker) return Promise.reject(new Error('Playback process is unavailable. Restart the application.'));
   const id = ++sequence;
   return new Promise((resolve, reject) => {
-    const timeoutMs = command.type === 'load' || command.type === 'retry' ? 30_000 : 10_000;
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error('Playback operation timed out')); }, timeoutMs);
+    const timeoutMs = playbackRequestTimeoutMs(command.type);
+    const deadline = Date.now() + timeoutMs;
+    const timer = setTimeout(() => { pending.delete(id); worker?.postMessage({ type: 'cancel', id }); reject(new Error('Playback operation timed out')); }, timeoutMs);
     pending.set(id, { resolve, reject, timer });
-    worker!.postMessage({ id, command });
+    worker!.postMessage({ id, command, deadline });
   });
 }
 
@@ -80,9 +85,15 @@ function publish(): void { if (window && !window.isDestroyed()) window.webConten
 
 app.on('second-instance', () => { window?.restore(); window?.focus(); });
 async function initialize(resources: string): Promise<void> {
+  audioHost = new AudioHost(join(__dirname, '../audio'), join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/ffmpeg.exe' : 'linux-x64/ffmpeg'), !app.isPackaged && process.env.COMMS_TEST_NULL_AUDIO === '1');
   const testOutput = !app.isPackaged && process.env.COMMS_TEST_NULL_AUDIO === '1' ? '--test-null-audio' : '';
   worker = utilityProcess.fork(join(__dirname, '../sync/entry.cjs'), [resources, testOutput, ...developmentReplayArguments(app.isPackaged, process.env)], { serviceName: 'Replay comms synchronization', stdio: 'pipe' });
-  worker.on('message', (message: WorkerResponse) => {
+  worker.on('message', (message: WorkerResponse | AudioRequest) => {
+    if (message.type === 'audio-request') {
+      const sender = worker;
+      void audioHost!.handle(message).then(reply => sender?.postMessage(reply));
+      return;
+    }
     if (message.type === 'snapshot') {
       snapshot = message.snapshot;
       review?.onPlayback(snapshot);
@@ -97,6 +108,7 @@ async function initialize(resources: string): Promise<void> {
   });
   worker.stderr?.on('data', data => { process.stderr.write(data); });
   worker.on('exit', code => {
+    audioHost?.close();
     worker = undefined;
     clearInterval(heartbeat);
     for (const call of pending.values()) { clearTimeout(call.timer); call.reject(new Error('Playback process stopped')); }
@@ -199,6 +211,7 @@ const startupTask = app.whenReady().then(async () => {
     else if (command.type === 'align') { await review.setManualOffset(command.offsetSeconds); publish(); }
     else if (command.type === 'track') { await review.selectTrack(command.trackId); workflow.complete(); publish(); }
     else if (command.type === 'preview-track') { await review.selectTrack(command.trackId, false); await request({ type: 'preview', paused: false }); }
+    else if (command.type === 'filters') await review.setFilters(command.filters);
     else if (command.type === 'volume') await review.setVolume(command.volume);
     else if (command.type === 'follow') {
       if (!['ready', 'alignment.manual'].includes(publishedSnapshot().workflow!.state)) throw new Error('Finish the current step before listening.');

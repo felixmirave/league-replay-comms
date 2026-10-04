@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const mediaStreamSchema = z.object({
   index: z.number().int().nonnegative(), type: z.enum(['audio', 'video']), codec: z.string(),
-  title: z.string().optional(), language: z.string().optional(),
+  title: z.string().optional(), language: z.string().optional(), channels: z.number().int().positive().optional(),
   startPtsSeconds: z.number().finite().optional(), durationSeconds: z.number().finite().positive().optional(),
   taggedEndPtsSeconds: z.number().finite().optional(),
   packetRange: z.object({ startPtsSeconds: z.number().finite(), endPtsSeconds: z.number().finite() }).optional(),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { filterSettingsSchema, defaultFilters } from '../shared/filters';
 import { probeSchema } from '../shared/media';
 import { clockEvidenceSchema } from '../shared/clock';
 import { cropSchema } from '../shared/geometry';
@@ -35,12 +36,12 @@ export const librarySchema = z.object({
   })),
   timings: z.record(z.string(), timingSchema), conflicts: z.record(z.string(), z.array(alignmentSchema)),
   pendingImports: z.record(z.string(), pendingSchema),
-  settings: z.object({ mediaFolders: z.array(z.string()), volume: z.number().min(0).max(100), selectedInstallation: z.string().optional() }),
+  settings: z.object({ mediaFolders: z.array(z.string()), volume: z.number().min(0).max(100), selectedInstallation: z.string().optional(), filters: filterSettingsSchema.default(defaultFilters) }),
   // Recovery copy only: old manually asserted replay links cannot select recordings.
   legacy: legacySchema.optional(),
 });
 export type LibraryData = z.infer<typeof librarySchema>;
-export const emptyLibrary = (): LibraryData => ({ schemaVersion: 6, revision: 0, media: {}, timings: {}, conflicts: {}, pendingImports: {}, settings: { mediaFolders: [], volume: 100 } });
+export const emptyLibrary = (): LibraryData => ({ schemaVersion: 6, revision: 0, media: {}, timings: {}, conflicts: {}, pendingImports: {}, settings: { mediaFolders: [], volume: 100, filters: defaultFilters() } });
 export const timingKey = (mediaHash: string, trackKey: string): string => JSON.stringify([mediaHash, trackKey]);
 export const sameFileVersion = (a: FileVersion, b: FileVersion): boolean => a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs && a.device === b.device && a.inode === b.inode;
 
@@ -57,7 +58,7 @@ function commonTrack(values: TrackPreference[]): TrackPreference | undefined {
 }
 function migrate(raw: unknown): LibraryData {
   const legacy = validateLegacy(raw);
-  const data: LibraryData = { ...emptyLibrary(), revision: legacy.revision, settings: legacy.settings, legacy };
+  const data: LibraryData = { ...emptyLibrary(), revision: legacy.revision, settings: { ...legacy.settings, filters: defaultFilters() }, legacy };
   for (const file of Object.values(legacy.media)) {
     const choices = Object.values(legacy.replays).filter(replay => replay.preferredRecording?.mediaHash === file.hash)
       .map(replay => ({ trackKey: replay.preferredRecording!.trackKey, revision: replay.preferenceRevision }));

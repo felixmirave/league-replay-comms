@@ -3,7 +3,7 @@
 This workflow runs the production Electron main process, preload, renderer, utility
 workers, synchronization controller, library, hashing, OCR, and media adapters.
 An independent HTTPS server supplies Replay API timestamps and controls. A private
-PulseAudio server routes real mpv output to a virtual device whose monitor is
+PulseAudio server routes real Electron Web Audio output to a virtual device whose monitor is
 captured as PCM. No League replay file or running League client is needed.
 
 ## Prepare and run
@@ -73,7 +73,7 @@ tests, the full Vitest suite with real media tools, the production build, and th
 existing Electron startup, timing, volume, review and driver workflows. It then
 runs connected UI/audio scenarios: track selection, saved offset, explicit Start,
 pause/resume, forward/backward seek, 2x and 0.5x playback, volume, recording bounds,
-negative offset, Replay API failures/recovery, replay replacement, and restart.
+negative offset, Replay API failures/recovery, replay replacement, and restart. Review recovery checks interrupt the Web Audio context and verify restoration of the audible volume, selected track, and alignment.
 
 The native file picker supplies a chosen path through Playwright; the app's
 import, track choice, editing and listening controls are operated in the actual
@@ -141,8 +141,14 @@ certification of the application's physical timing targets. Seek scenarios requi
 development recovery budget; they do not certify the 350 ms product recovery target.
 
 Null-output tests remain useful for engine behavior, but the connected scenarios
-require the real PulseAudio output driver and inspect captured samples. A virtual
-sink does not establish Windows WASAPI behavior, Bluetooth/headphone latency or
+require real Web Audio output routed through PulseAudio and inspect captured
+samples. Timing fixtures disable speech filters through the app controls because
+those filters intentionally attenuate the tone codes; filter behavior has separate
+model/graph regression coverage. The tone decoder recognizes a transition only
+when both halves independently identify adjacent codes on the same track. Timing,
+audibility, and silence thresholds remain unchanged. Filter regression checks also
+inject a suppression-worker failure and require original audio to keep playing.
+A virtual sink does not establish Windows WASAPI behavior, Bluetooth/headphone latency or
 physical sound delivery. Windows installation discovery, UAC, protected handle
 checks, real sleep/hotplug, and portable executable execution remain in the
 existing Windows acceptance workflow. The existing PowerShell helper tests can

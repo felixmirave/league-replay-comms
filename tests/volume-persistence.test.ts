@@ -107,3 +107,55 @@ describe('volume persistence', () => {
     expect((await ReviewLibrary.open(folder)).snapshot().settings).toMatchObject({ volume: 42, mediaFolders: [folder] });
   });
 });
+
+describe('filter persistence', () => {
+  it('debounces suppression amount but applies its toggle immediately', async () => {
+    const filters = library.snapshot().settings.filters;
+    filters.noise.attenuation = 30; await session.setFilters(filters);
+    filters.noise.attenuation = 35; await session.setFilters(filters);
+    expect(commands).toEqual([]);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(commands).toEqual([{ type: 'filters', filters }]);
+    filters.noise.enabled = false; await session.setFilters(filters);
+    expect(commands.at(-1)).toEqual({ type: 'filters', filters });
+    expect(commands).toHaveLength(2);
+  });
+  it('applies a pending suppression edit before exit and keeps it after cancel', async () => {
+    const filters = library.snapshot().settings.filters;
+    filters.noise.attenuation = 40; await session.setFilters(filters);
+    vi.spyOn(library, 'updateSettings').mockRejectedValue(new Error('Disk unavailable'));
+    await session.prepareExit();
+    expect(commands).toEqual([{ type: 'filters', filters }]);
+    expect(session.snapshot().saveError).toContain('Disk unavailable');
+    session.resumeAfterExit();
+    expect(session.snapshot().filters).toEqual(filters);
+    filters.position.enabled = true; await session.setFilters(filters);
+    expect(commands.at(-1)).toEqual({ type: 'filters', filters });
+  });
+  it('applies radio and position immediately and debounces saving with volume', async () => {
+    const filters = library.snapshot().settings.filters;
+    filters.radio.strength = 150; filters.position.enabled = true; filters.position.pan = 100;
+    await session.setFilters(filters);
+    await session.setVolume(45);
+    filters.radio.strength = 50;
+    await session.setFilters(filters);
+    expect(session.snapshot().filters?.radio.strength).toBe(50);
+    expect(session.snapshot().unsavedPreferences).toBe(2);
+    expect(commands.filter(command => command.type === 'filters')).toHaveLength(2);
+    expect(commands.at(-1)).toEqual({ type: 'filters', filters });
+    await vi.advanceTimersByTimeAsync(250); await session.settled();
+    expect((await ReviewLibrary.open(folder)).snapshot().settings).toMatchObject({ volume: 45, filters });
+  });
+  it('retains filter intent across failed playback and saves it on exit', async () => {
+    const filters = library.snapshot().settings.filters; filters.noise.attenuation = 40;
+    const failed = new ReviewSession(library, { identify: async () => { throw new Error('Unused'); } }, {
+      snapshot: () => structuredClone(initialSnapshot), send: async () => { throw new Error('Output interrupted'); },
+    }, () => {});
+    await failed.setFilters(filters);
+    await vi.advanceTimersByTimeAsync(150); await failed.settled();
+    expect(failed.snapshot().filterError).toBe('Output interrupted');
+    expect(failed.snapshot().filters).toEqual(filters);
+    await failed.prepareExit(); failed.close(); await failed.settled();
+    expect((await ReviewLibrary.open(folder)).snapshot().settings.filters).toEqual(filters);
+  });
+});

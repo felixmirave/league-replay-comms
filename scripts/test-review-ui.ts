@@ -25,7 +25,7 @@ interface TraceReport {
 }
 
 // Uses the real Electron main/preload/renderer, disk library, hash worker, and mpv.
-// A null output and generated recording make this a workflow test, not an audible timing gate.
+// Muted Web Audio and a generated recording make this a workflow test, not an audible timing gate.
 const folder = await mkdtemp(join(tmpdir(), 'comms-review-ui-'));
 const profile = join(folder, 'profile');
 await mkdir(profile);
@@ -183,21 +183,31 @@ async function checkOutputRecovery(window: Page) {
   const before = await window.evaluate(() => globalThis.window.review.snapshot());
   const pipe = await ownedPlayerPipe();
   await window.evaluate(() => globalThis.window.review.command({ type: 'preview', paused: false }));
-  await nativeCommand(pipe, ['ao-reload'], true);
-  const after = await waitState(window, state => !state.busy && !state.error && state.paused && state.audioOutput?.driver === 'null' && state.audioOutput.revision > before.audioOutput!.revision, 30000);
+  // Interrupt the audible renderer, not the metadata-only mpv output.
+  await app!.evaluate(async ({ BrowserWindow }) => {
+    const audio = BrowserWindow.getAllWindows().find(item => !item.isVisible());
+    if (!audio) throw new Error('Audio renderer is missing');
+    await audio.webContents.executeJavaScript('globalThis.audioEngine.context.suspend()');
+  });
+  const after = await waitState(window, state => !state.busy && !state.error && state.paused && state.audioOutput?.driver === 'Web Audio' && state.audioOutput.revision > before.audioOutput!.revision, 30000);
   assert.equal(after.offsetSeconds, before.offsetSeconds);
   assert.deepEqual(after.library!.alignment, before.library!.alignment);
   assert.equal(after.media!.selectedTrackId, before.media!.selectedTrackId);
   const replacement = await ownedPlayerPipe();
   assert.notEqual(replacement, pipe);
-  assert.equal(await nativeCommand(replacement, ['get_property', 'volume']), before.library!.volume);
+  const volume = await app!.evaluate(async ({ BrowserWindow }) => {
+    const audio = BrowserWindow.getAllWindows().find(item => !item.isVisible());
+    if (!audio) throw new Error('Audio renderer is missing');
+    return audio.webContents.executeJavaScript('globalThis.audioEngine.volume');
+  });
+  assert.equal(volume, before.library!.volume);
   const tracks = await nativeCommand<{ type: string; selected: boolean; id: number }[]>(replacement, ['get_property', 'track-list']);
   assert.equal(tracks.find(track => track.type === 'audio' && track.selected)!.id, before.media!.selectedTrackId);
   await window.evaluate(() => globalThis.window.review.command({ type: 'preview', paused: false }));
   await waitState(window, state => !state.paused);
   await window.evaluate(() => globalThis.window.review.command({ type: 'preview', paused: true }));
   await waitState(window, state => state.paused);
-  console.log(`Real Electron output recovery: native reconfiguration, replaced player, paused preview, track ${before.media!.selectedTrackId}, actual volume, and retained offset passed.`);
+  console.log(`Real Electron output recovery: interrupted Web Audio, replaced player, paused preview, track ${before.media!.selectedTrackId}, actual volume, and retained offset passed.`);
 }
 async function checkPowerRecovery(window: Page) {
   const before = await window.evaluate(() => globalThis.window.review.snapshot());
@@ -286,7 +296,9 @@ try {
       globalThis.exitDialogOptions = args.at(-1) as Electron.MessageBoxOptions;
       return new Promise<Electron.MessageBoxReturnValue>(resolve => { globalThis.answerExitDialog = resolve; });
     }) as typeof dialog.showMessageBox;
-    BrowserWindow.getAllWindows()[0]!.close();
+    const main = BrowserWindow.getAllWindows().find(item => item.isVisible());
+    if (!main) throw new Error('Review window is missing');
+    main.close();
   });
   const dialogDeadline = Date.now() + 10000;
   let exitOptions;
@@ -451,6 +463,11 @@ try {
   }
   throw error;
 } finally {
-  if (app) await close();
+  if (app) {
+    // A failed exit assertion can leave its dialog stub pending. Teardown owns
+    // this temporary profile and must not wait for another user decision.
+    await app.evaluate(({ dialog }) => { dialog.showMessageBox = (async () => ({ response: 2, checkboxChecked: false })) as typeof dialog.showMessageBox; }).catch(() => undefined);
+    await close();
+  }
   await rm(folder, { recursive: true, force: true });
 }

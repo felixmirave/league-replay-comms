@@ -25,3 +25,30 @@ test('real-recording correlation checks samples independently of playback report
   assert(Math.abs(result.sourceSeconds - result.capturedSeconds - 21) < 0.001);
   assert.throws(() => matchRecording(Buffer.alloc(captured.length), pcm, 0));
 });
+
+test('audio oracle decodes adjacent-code transitions without accepting off-grid tones', () => {
+  const fixture = fixturePcm(2, 12);
+  // This 2048-sample window is centered on the 11992 -> 12016 Hz transition.
+  const start = Math.round(10.5 * 48000) - 1024;
+  const frame = analyzePcm(fixture.subarray(start * 2, (start + 2048) * 2))[0]!;
+  assert.equal(frame.track, 2);
+  assert.equal(frame.sourceSeconds, 10.5);
+  assert(Math.abs(frame.frequency! - 12004) < 2, 'The full-window peak lies between the two valid codes');
+
+  const invalid = Buffer.alloc(48000 * 2);
+  for (let i = 0; i < 48000; i++) invalid.writeInt16LE(Math.round(7000 * Math.sin(2 * Math.PI * 12004 * i / 48000)), i * 2);
+  const frames = analyzePcm(invalid);
+  assert(frames.every(frame => frame.sourceSeconds === undefined), 'A steady off-grid tone must remain undecodable');
+  assert.throws(() => verifyCodedAudio(frames, () => 10.5, 2));
+});
+
+test('audio oracle handles transition window offsets and still rejects wrong timing and track', () => {
+  const fixture = fixturePcm(2, 12);
+  for (const offset of [0, 1, 144, 479, 959]) {
+    const start = 10 * 48000 + offset;
+    const frames = analyzePcm(fixture.subarray(start * 2, (start + 48000) * 2));
+    verifyCodedAudio(frames, at => 10 + offset / 48000 + at, 2, .15);
+    assert.throws(() => verifyCodedAudio(frames, at => 10.5 + offset / 48000 + at, 2, .15));
+    assert.throws(() => verifyCodedAudio(frames, at => 10 + offset / 48000 + at, 1, .15));
+  }
+});
