@@ -71,7 +71,7 @@ Synthetic coded recordings cover the other speeds and boundary cases.
 The command checks prerequisites, runs type checking, verification-tool regression
 tests, the full Vitest suite with real media tools, the production build, and the
 existing Electron startup, timing, volume, review and driver workflows. It then
-runs connected UI/audio scenarios: track selection, saved offset, explicit Start,
+runs connected UI/audio scenarios: track selection, saved offset, automatic playback, mute/unmute,
 pause/resume, forward/backward seek, 2x and 0.5x playback, volume, recording bounds,
 negative offset, Replay API failures/recovery, replay replacement, and restart. Review recovery checks interrupt the Web Audio context and verify restoration of the audible volume, selected track, and alignment.
 
@@ -95,6 +95,40 @@ To listen to a capture or turn it into a shareable WAV:
 sh scripts/linux.sh ffmpeg -f s16le -ar 48000 -ac 1 \
   -i /path/to/output.s16le /path/to/output.wav
 ```
+
+## Individual checks and prerequisites
+
+`check` performs TypeScript checks, deterministic tests, and the production build.
+It includes the [reviewed screenshot corpus](../fixtures/ocr/README.md#real-images)
+through the production clock crop/OCR. This requires prepared OCR resources and
+FFmpeg: the bundled executable on Windows, or `COMMS_TEST_FFMPEG` / `ffmpeg` on Linux.
+Run just these 31 cases with `npm run test:ocr-corpus`.
+The real-engine test is skipped by the default suite unless `COMMS_TEST_MPV` is set.
+`test:engine` requires a real mpv and defaults to the prepared Windows executable;
+it uses null audio output to verify engine behavior, not physical audible timing.
+`smoke:ui` launches the real Electron application and requires a desktop session.
+`test:review-ui` additionally exercises real mpv with null output, the hash worker,
+saved manual alignment, restart, rename detection, and folder-based relocation.
+Both UI tests use isolated temporary library directories. They do not test League
+or physical audio output.
+`test:volume-ui` runs the renderer in Electron with controlled desktop responses
+and requires a desktop session. It checks pointer and keyboard volume changes
+across replay-clock updates, delayed replies, and failed saves in both controls. It also verifies mute icon accessibility and unchanged button/slider bounds while toggling.
+`test:startup-ui` holds initialization I/O in the real Electron app to check that
+the loading window appears first, errors replace it, and closing during startup
+exits cleanly. It also requires a desktop session.
+`test:timing-ui` checks live controls, partial signed input, stale replies, save failures, clock-detection commands, and accepting initial zero timing with Done in the controlled renderer.
+
+When `COMMS_TEST_FFMPEG` is provided (or bundled FFmpeg is available on Windows), `test:review-ui` also imports a generated POV video, resolves missing track timing, verifies cached timing, and edits an offset after failed detection. With prepared OCR resources, the review workflow reads a generated top-right clock, cancels analysis through a manual edit, reruns detection, and checks midpoint alignment and saved timing after rename. It also blocks a library write, cancels a close attempt with unsaved changes, restores the destination, and verifies saving.
+
+Setup checks use a synthetic installation to verify config detection and refresh
+independently of replay connectivity. On Windows, or when `COMMS_TEST_POWERSHELL`
+points to a test PowerShell executable, the helper integration tests exercise
+actual config edits, backups, restore, sharing conflicts, and stale-file rejection.
+The desktop workflow also exercises enable/restore through the real helper.
+Actual Windows discovery, handle checks, and elevation remain separate gates.
+
+Set `COMMS_TEST_MPV` to a Linux mpv to include native engine integration tests. Set `COMMS_TEST_FFMPEG` and `COMMS_TEST_FFPROBE` to include generated media timeline cases in `test:engine`; Windows defaults to the prepared bundled tools. Electron UI commands require a desktop session or Xvfb. Linux distribution is not a product target.
 
 ## Interactive agent session
 

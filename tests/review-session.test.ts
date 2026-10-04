@@ -147,7 +147,8 @@ describe('review workflow', () => {
     expect(player.state.media?.name).toBe('renamed unaligned.mkv');
     expect(player.state.media?.selectedTrackId).toBe(2);
     expect(next.snapshot().alignment).toBeUndefined();
-    await expect(next.follow()).rejects.toThrow('Set an alignment');
+    await next.resume();
+    expect(player.state.offsetSeconds).toBeUndefined();
   });
 
   it('restores the saved track discovered after hashing a manually opened renamed recording', async () => {
@@ -214,30 +215,31 @@ describe('review workflow', () => {
     expect(player.state.media?.selectedTrackId).toBe(1);
   });
 
-  it('keeps listening through live offset edits and only resumes after explicit Start following a disconnect', async () => {
+  it('follows automatically and retains the recording through disconnects and live timing edits', async () => {
     const { media, library } = await fixtures();
     const player = new Player(), session = new ReviewSession(library, direct, player, () => {});
     await session.openMedia(media); await session.settled(); await session.selectTrack(1);
     await session.setManualOffset(0);
-    expect(player.commands.some(command => command.type === 'follow')).toBe(false);
-    await session.follow();
+    expect(player.commands.at(-1)).toEqual({ type: 'apply-alignment', offsetSeconds: 0, replaySessionId: 'runtime-a' });
     player.commands.length = 0;
     await session.enterTiming();
     await session.setManualOffset(.1); await session.setManualOffset(-.1);
-    expect(session.snapshot().boundToRuntime).toBe(true);
     expect(player.commands).toEqual([
       { type: 'apply-alignment', offsetSeconds: .1, replaySessionId: 'runtime-a' },
       { type: 'apply-alignment', offsetSeconds: -.1, replaySessionId: 'runtime-a' },
     ]);
-    expect(timing(library, session)?.alignment).toMatchObject({ baseOffsetSeconds: -.1, correctionSeconds: 0 });
+    const commandsBeforeDone = player.commands.length;
+    await session.resume();
+    expect(player.commands).toHaveLength(commandsBeforeDone);
     player.state.connectionError = 'Disconnected'; session.onPlayback(player.snapshot());
+    expect(session.snapshot().boundToRuntime).toBe(true);
     player.state.connectionError = undefined;
     await session.setManualOffset(-.2);
-    expect(session.snapshot().boundToRuntime).toBe(false);
-    expect(player.commands.at(-1)).toEqual({ type: 'apply-alignment', offsetSeconds: -.2, replaySessionId: undefined });
-    await session.follow(); expect(session.snapshot().boundToRuntime).toBe(true);
+    expect(player.commands.at(-1)).toEqual({ type: 'apply-alignment', offsetSeconds: -.2, replaySessionId: 'runtime-a' });
     await session.stop(); await session.setManualOffset(5);
-    expect(session.snapshot().boundToRuntime).toBe(false);
+    expect(player.commands.at(-1)).toEqual({ type: 'apply-alignment', offsetSeconds: 5, replaySessionId: undefined });
+    await session.resume();
+    expect(player.commands.at(-1)).toEqual({ type: 'apply-alignment', offsetSeconds: 5, replaySessionId: 'runtime-a' });
   });
 
   it.each([NaN, Infinity, -Infinity, 86400.1, -86400.1])('rejects invalid offsets without changing accepted timing: %s', async value => {
@@ -267,8 +269,8 @@ describe('review workflow', () => {
     expect(player.state.media?.selectedTrackId).toBe(2);
     expect(player.state.offsetSeconds).toBeCloseTo(45.01);
     expect(next.snapshot().alignment).toMatchObject({ baseOffsetSeconds: 45.01, correctionSeconds: 0 });
-    await next.follow();
-    expect(player.commands.at(-1)?.type).toBe('follow');
+    await next.resume();
+    expect(player.commands.at(-1)).toMatchObject({ type: 'apply-alignment', replaySessionId: 'runtime-a' });
   });
 
   it('keeps manual changes made while the media hash is pending', async () => {
@@ -290,18 +292,43 @@ describe('review workflow', () => {
     expect(timing(library, session)?.alignment.baseOffsetSeconds).toBeCloseTo(12.1);
   });
 
-  it('disarms listening on a runtime change and binds only when Start is requested again', async () => {
+  it('requires choosing a recording for a new viewer before automatic playback can resume', async () => {
     const { media, library } = await fixtures();
     const player = new Player(), session = new ReviewSession(library, direct, player, () => {});
     await session.openMedia(media); await session.settled(); await session.selectTrack(1);
-    await session.setManualOffset(45); await session.follow();
-    expect(session.snapshot().boundToRuntime).toBe(true);
+    await session.setManualOffset(45);
     player.state.replay!.sessionId = 'runtime-b'; session.onPlayback(player.snapshot());
-    expect(session.snapshot().boundToRuntime).toBe(false);
-    expect(player.commands.filter(command => command.type === 'follow')).toHaveLength(1);
-    await session.follow();
-    expect(player.commands.at(-2)).toMatchObject({ type: 'apply-alignment', replaySessionId: 'runtime-b' });
-    expect(player.commands.at(-1)?.type).toBe('follow');
+    expect(session.snapshot()).toMatchObject({ boundToRuntime: false, needsRecordingChoice: true });
+    await session.resume(); await session.setManualOffset(46);
+    expect(player.commands.at(-1)).toMatchObject({ type: 'apply-alignment', replaySessionId: undefined });
+    await session.openMedia(media); await session.settled();
+    expect(session.snapshot().needsRecordingChoice).toBe(false);
+    expect([...player.commands].reverse().find(command => command.type === 'apply-alignment')).toMatchObject({ replaySessionId: 'runtime-b', offsetSeconds: 46 });
+  });
+
+  it('automatically attaches an offline preparation when a verified viewer becomes available', async () => {
+    const { media, library } = await fixtures();
+    const player = new Player(), replay = player.state.replay; player.state.replay = undefined;
+    const session = new ReviewSession(library, direct, player, () => {});
+    await session.openMedia(media); await session.settled(); await session.selectTrack(1); await session.setManualOffset(12);
+    player.state.media!.tracks[0]!.range = { startSeconds: 0, endSeconds: 2000, evidence: 'packet-scan' };
+    player.state.replay = replay; session.onPlayback(player.snapshot()); await session.settled();
+    expect(player.commands.at(-1)).toEqual({ type: 'apply-alignment', offsetSeconds: 12, replaySessionId: 'runtime-a' });
+  });
+
+  it('mute retains the chosen volume and survives recording replacement', async () => {
+    const { media, library } = await fixtures();
+    const player = new Player(), session = new ReviewSession(library, direct, player, () => {});
+    await session.openMedia(media); await session.settled();
+    await session.setVolume(63); await session.setMuted(true); await session.setVolume(47);
+    expect(player.commands.at(-1)).toEqual({ type: 'volume', volume: 0 });
+    expect(session.snapshot()).toMatchObject({ volume: 47, muted: true });
+    await session.openMedia(media); await session.settled();
+    expect([...player.commands].reverse().find(command => command.type === 'volume')).toEqual({ type: 'volume', volume: 0 });
+    expect((await ReviewLibrary.open(join(folder, 'data'))).snapshot().settings).toMatchObject({ volume: 47, muted: true });
+    await session.setMuted(false);
+    expect(player.commands.at(-1)).toEqual({ type: 'volume', volume: 47 });
+    session.close();
   });
 
   it('never applies a late hash from a previously selected recording to its replacement', async () => {
@@ -332,7 +359,8 @@ describe('review workflow', () => {
     await session.setManualOffset(-120);
     expect(session.snapshot().alignment?.baseOffsetSeconds).toBe(-120);
     expect(timing(library, session)?.alignment.baseOffsetSeconds).toBe(-120);
-    await expect(session.follow()).rejects.toThrow('Open a replay');
+    await session.resume();
+    expect(session.snapshot().boundToRuntime).toBe(false);
   });
 
   it('remembers independent track edits while hashing, and restores both after completion', async () => {
@@ -560,7 +588,7 @@ describe('clock analysis application', () => {
     expect(session.snapshot().alignment?.source).toBe('manual');
     expect(player.state.offsetSeconds).toBe(3);
     expect(session.snapshot().clock).toBeUndefined();
-    expect(session.snapshot().boundToRuntime).toBe(false);
+    expect(session.snapshot().boundToRuntime).toBe(true);
   });
   it('always uses automatic localization for new analysis, ignoring legacy user-selected clock regions', async () => {
     const { media, library } = await fixtures();
@@ -649,7 +677,7 @@ describe('clock analysis application', () => {
     expect(player.state.offsetSeconds).toBe(45);
     expect(session.snapshot().clock?.status).toBe('accepted');
     expect(session.snapshot().alignment?.source).toBe('video-clock');
-    expect(session.snapshot().boundToRuntime).toBe(false);
+    expect(session.snapshot().boundToRuntime).toBe(true);
   });
   it('refuses to apply clock results after source content changes', async () => {
     const { session, clocks, player, media } = await setup();

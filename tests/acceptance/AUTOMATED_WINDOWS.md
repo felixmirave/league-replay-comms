@@ -27,8 +27,7 @@ resources, then runs resource checks, type checks, the full test suite, packagin
 tests, the build, source desktop workflows, portable packaging, payload inspection,
 and the portable workflow. A failed command or evidence check stops later stages.
 The full test report must contain all required integration files with no skipped
-or unfinished tests. The packaged playback check requires a real output driver;
-its generated tracks are silent.
+or unfinished tests. The packaged playback check exercises Web Audio preview and requires a non-null reported output driver; its generated tracks are silent. It does not verify captured speech or sound-filter quality. `npm run test:filters-browser` is a separate optional Chromium check and is not run by this pipeline.
 
 Each run creates `release/validation/windows-*/` containing:
 
@@ -79,6 +78,38 @@ owned processes. Cleanup failure fails the report.
 The cross-platform driver smoke command, `npm run smoke:driver`, exercises real
 Electron attachment, identity rejection, main/renderer evaluation, and cleanup
 without stderr. Passing it on Linux does not establish NSIS behavior on Windows.
+
+## Packaging and artwork maintenance
+
+The portable launcher shows **Starting…** while extracting the app. Once Electron
+starts, the main window shows an animated loading indicator while the library and
+services initialize. The launcher splash closes before Electron starts, so a brief
+gap between the two windows is possible. Edit `build/splash.svg` and run
+`npm run prepare:splash` in a desktop session to regenerate the checked-in bitmap;
+ordinary builds use that bitmap without needing image conversion or a desktop.
+The replay-headset artwork is shared by the splash and app header through
+`src/renderer/public/icon.png` (256×256). `build/icon.ico` contains the Windows
+sizes from 16 to 256 pixels and supplies both executable icons and the running
+window's icon. Windows resource editing stays enabled; only code signing is
+disabled. Regenerate the splash bitmap after changing the PNG.
+
+Release builds minify the main process and workers and omit source maps and npm
+packages already compiled into `dist`. The portable payload keeps English Electron
+locales, Node OCR cores with all SIMD fallbacks, and native license/build notices.
+Browser OCR bundles, upstream manuals, and installer examples are omitted. A pack
+hook removes Electron's duplicate Chromium notices only after checking that the
+copy linked from the offline notices page is identical.
+
+`verify:artifact` checks both executables' embedded icon resolutions and the staged
+app against the current build/resources, then extracts the portable executable's
+embedded archive into a temporary directory.
+It compares every extracted file with the staged build, including runtime libraries
+and notices, and removes the temporary copy. Verification needs roughly 1 GiB of
+additional disk space for the current payload. It writes SHA-256 and verification
+records beside the executable; neither record establishes Windows execution or
+audible accuracy.
+
+Packaging stages the application and compresses the portable executable in separate processes to bound memory use. Resource verification checks x64 PE imports and bundled DLL exports, including mpv's Vulkan loader; it does not replace Windows execution. Run `node --test scripts/windows-native.test.ts` after native preparation for the dependency-check regressions.
 
 ## Separate release evidence
 

@@ -27,13 +27,23 @@ export async function verifyConnected(folder: string, recording?: { path: string
     return { start, pcm, frames: analyzePcm(pcm, start - session.latency) };
   };
   const audible = async (duration = 1.2) => {
+    await waitPlayback();
     const data = await segment(duration);
     return verifyCodedAudio(data.frames, at => session.simulator.timeline.at(at).time + offset, track, 0.22 + session.uncertainty);
   };
   const silent = async () => verifySilence((await segment(0.8)).frames);
-  const follow = async () => {
-    await page.getByRole('button', { name: 'Start listening', exact: true }).click();
-    await waitSnapshot(page, state => state.sync.state === 'following' || state.sync.state === 'paused');
+  const waitPlayback = async () => {
+    const paused = session.simulator.timeline.at().paused;
+    let stableSince: number | undefined;
+    // Following can briefly be reported before an unpause acknowledgement or
+    // another catch-up seek. Measure steady audio only after playback settles.
+    await waitSnapshot(page, state => {
+      const settled = !state.busy && state.replay?.paused === paused && state.paused === paused
+        && state.sync.state === (paused ? 'paused' : 'following');
+      if (!settled) stableSince = undefined;
+      else stableSince ??= seconds();
+      return stableSince !== undefined && seconds() - stableSince >= .3;
+    });
   };
   const setAlignment = async (value: number) => {
     await waitSnapshot(page, state => !state.busy && !!state.library?.recording?.hash && state.library.trackChosen && state.workflow?.state === 'alignment.manual', 60000);
@@ -68,12 +78,12 @@ export async function verifyConnected(folder: string, recording?: { path: string
       await page.getByRole('button', { name: 'Close settings', exact: true }).click();
       await page.getByLabel('Recording offset (seconds)', { exact: true }).waitFor();
       await setAlignment(2);
-      const state = await waitSnapshot(page, state => state.workflow?.state === 'ready');
+      const state = await waitSnapshot(page, state => state.workflow?.state === 'listening');
       assert.equal(state.media!.selectedTrackId, 2); assert.equal(state.audioOutput?.driver, 'Web Audio');
       return { media: state.media, output: state.audioOutput };
     });
-    await checkpoint('start-listening', async () => {
-      session.simulator.timeline.set({ time: 8, speed: 1, paused: false }); await follow(); await delay(500);
+    await checkpoint('automatic-playback', async () => {
+      session.simulator.timeline.set({ time: 8, speed: 1, paused: false }); await waitPlayback(); await delay(500);
       return audible();
     });
     await checkpoint('pause', async () => {
@@ -116,6 +126,40 @@ export async function verifyConnected(folder: string, recording?: { path: string
       assert(after.rms < before.rms * 0.8 && after.rms > before.rms * 0.01, 'Volume must reduce captured sample amplitude');
       return { before, after, amplitudeRatio: after.rms / before.rms };
     });
+    await checkpoint('mute-unmute', async () => {
+      const saved = await page.getByRole('slider', { name: 'Comms volume', exact: true }).inputValue();
+      await page.getByRole('button', { name: 'Mute comms', exact: true }).click();
+      await waitSnapshot(page, state => state.library?.muted === true); await delay(300); const silence = await silent();
+      assert.equal(await page.getByRole('slider', { name: 'Comms volume', exact: true }).inputValue(), saved);
+      await page.getByRole('button', { name: 'Unmute comms', exact: true }).click();
+      await waitSnapshot(page, state => state.library?.muted === false); await delay(300);
+      return { silence, resumed: await audible() };
+    });
+    await checkpoint('power-recovery', async () => {
+      session.simulator.timeline.set({ time: 8 }); await waitPlayback(); await delay(300);
+      const before = await page.evaluate(() => window.review.snapshot());
+      await app.evaluate(({ powerMonitor }) => powerMonitor.emit('suspend'));
+      await waitSnapshot(page, state => state.busy && state.paused);
+      await app.evaluate(({ powerMonitor }) => powerMonitor.emit('resume'));
+      const after = await waitSnapshot(page, state => !state.busy && state.sync.state === 'following' && !state.connectionError);
+      assert.equal(after.replay!.sessionId, before.replay!.sessionId);
+      assert.equal(after.offsetSeconds, before.offsetSeconds);
+      assert.equal(after.library!.needsRecordingChoice, false);
+      await delay(400); return audible();
+    });
+    await checkpoint('output-recovery', async () => {
+      session.simulator.timeline.set({ time: 8 }); await waitPlayback(); await delay(300);
+      const before = await page.evaluate(() => window.review.snapshot());
+      await app.evaluate(async ({ BrowserWindow }) => {
+        const audio = BrowserWindow.getAllWindows().find(window => !window.isVisible());
+        if (!audio) throw new Error('Audio renderer is missing');
+        await audio.webContents.executeJavaScript('globalThis.audioEngine.context.suspend()');
+      });
+      const after = await waitSnapshot(page, state => !state.busy && state.sync.state === 'following' && (state.audioOutput?.revision ?? 0) > before.audioOutput!.revision);
+      assert.equal(after.replay!.sessionId, before.replay!.sessionId);
+      assert.equal(after.offsetSeconds, before.offsetSeconds);
+      await delay(400); return audible();
+    });
     await checkpoint('recording-end', async () => {
       session.simulator.timeline.set({ time: 40 }); await waitSnapshot(page, state => state.sync.state === 'outside-recording'); await delay(400); return silent();
     });
@@ -127,35 +171,39 @@ export async function verifyConnected(folder: string, recording?: { path: string
     for (const fault of ['offline', 'json', 'schema', 'oversize', 'http', 'delay'] as const) await checkpoint('replay-fault-' + fault, async () => {
       session.simulator.timeline.set({ fault }); await waitSnapshot(page, state => !!state.connectionError && state.paused); await delay(400); const silence = await silent();
       session.simulator.timeline.set({ fault: 'none', time: 12 });
-      await waitSnapshot(page, state => !!state.replay && !state.connectionError && !state.library?.boundToRuntime);
-      await silent(); await follow(); await delay(500); return { silence, recovery: await audible(0.8) };
+      await waitSnapshot(page, state => !!state.replay && !state.connectionError && !!state.library?.boundToRuntime);
+      await waitPlayback(); await delay(500); return { silence, recovery: await audible(0.8) };
     });
     await checkpoint('replay-replacement', async () => {
       session.simulator.timeline.set({ processID: 2000, time: 12 });
       await waitSnapshot(page, state => !state.library?.boundToRuntime && state.paused, 10000);
-      await delay(300); await silent(); await follow(); await delay(500); return audible();
+      await delay(300); await silent();
+      assert.equal((await page.evaluate(() => window.review.snapshot())).workflow?.state, 'recording.choose');
+      assert.equal(await page.getByRole('button', { name: 'Back to recording', exact: true }).count(), 0);
+      await page.locator('.recents button').first().click();
+      await waitPlayback(); await delay(500); return audible();
     });
     await checkpoint('restart-and-persistence', async () => {
       session.simulator.timeline.set({ paused: true, time: 8 });
       const relaunched = await session.restart(); page = relaunched.page; app = relaunched.app;
       await page.locator('.recent').filter({ hasText: 'coded-tracks.mka' }).first().click();
-      const state = await waitSnapshot(page, state => state.library?.recordingReady === true && state.workflow?.state === 'ready');
+      const state = await waitSnapshot(page, state => state.library?.recordingReady === true && state.workflow?.state === 'listening');
       assert.equal(state.media!.selectedTrackId, track); assert.equal(state.library!.volume, 50);
       assert(state.library!.filters && !state.library!.filters.radio.enabled && !state.library!.filters.noise.enabled && !state.library!.filters.position.enabled, 'Filter baseline must persist across restart');
       assert.equal(state.library!.alignment!.baseOffsetSeconds + state.library!.alignment!.correctionSeconds, offset);
-      assert(!state.library!.boundToRuntime); await silent();
-      session.simulator.timeline.set({ paused: false }); await follow(); await delay(500); return audible();
+      assert.equal(state.library!.boundToRuntime, true); await waitPlayback(); await silent();
+      session.simulator.timeline.set({ paused: false }); await waitPlayback(); await delay(500); return audible();
     });
     if (recording) await checkpoint('uploaded-recording', async () => {
       session.simulator.timeline.set({ time: recording.at, speed: 1, paused: true });
       await page.getByRole('button', { name: 'Change recording', exact: true }).click();
       await session.selectFile(recording.path); await page.getByRole('button', { name: 'Choose recording', exact: true }).click();
       await chooseTrack(recording.track);
-      const state = await waitSnapshot(page, state => ['alignment.analyzing', 'alignment.manual', 'ready', 'recording.identifying'].includes(state.workflow?.state ?? ''), 60000);
+      const state = await waitSnapshot(page, state => ['alignment.analyzing', 'alignment.manual', 'listening', 'recording.identifying'].includes(state.workflow?.state ?? ''), 60000);
       if (state.workflow?.state === 'alignment.analyzing' || state.workflow?.state === 'recording.identifying') await page.getByRole('button', { name: 'Align manually', exact: true }).click();
-      else if (state.workflow?.state === 'ready') await page.getByRole('button', { name: 'Adjust timing', exact: true }).click();
+      else if (state.workflow?.state === 'listening') await page.getByRole('button', { name: 'Adjust timing', exact: true }).click();
       await setAlignment(0);
-      session.simulator.timeline.set({ time: recording.at, paused: false }); await follow(); await delay(800);
+      session.simulator.timeline.set({ time: recording.at, paused: false }); await waitPlayback(); await delay(800);
       const data = await segment(2);
       const expected = session.simulator.timeline.at(data.start - session.latency).time;
       const referenceStart = Math.max(0, expected - 1);

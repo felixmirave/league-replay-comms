@@ -1,5 +1,4 @@
 import https from 'node:https';
-import { randomUUID } from 'node:crypto';
 import { playbackSchema, monotonicSeconds, type ReplaySample } from '../shared/domain';
 
 export interface ReplayTransport { get(path: '/replay/playback' | '/replay/game', signal: AbortSignal): Promise<unknown>; close(): void }
@@ -34,8 +33,7 @@ export class ReplayConnection {
   private running = false;
   private timer?: ReturnType<typeof setTimeout>;
   private active?: AbortController;
-  private sessionId = randomUUID();
-  private processId?: number;
+  private sessionId?: string;
   private lastIdentityAt = -Infinity;
   private failures = 0;
   private epoch = 0;
@@ -49,8 +47,6 @@ export class ReplayConnection {
 
   start(): void {
     if (this.running) return;
-    this.sessionId = randomUUID();
-    this.processId = undefined;
     this.lastIdentityAt = -Infinity;
     this.failures = 0;
     this.running = true;
@@ -63,18 +59,15 @@ export class ReplayConnection {
     if (!this.running || epoch !== this.epoch) return;
     const startedAt = this.clock();
     try {
-      // Identity reads have their own deadline; avoid letting a failed optional read starve playback.
+      // A connection failure is not evidence of a new viewer. Verify the PID
+      // before publishing playback on first connection and after interruptions.
       if (startedAt - this.lastIdentityAt >= 2) {
+        const game = await this.request('/replay/game');
+        if (!this.running || epoch !== this.epoch) return;
+        if (typeof game !== 'object' || game === null || !('processID' in game)
+          || !Number.isSafeInteger(game.processID) || (game.processID as number) <= 0) throw new Error('Replay process identity is unavailable');
+        this.sessionId = `process:${game.processID}`;
         this.lastIdentityAt = startedAt;
-        try {
-          const game = await this.request('/replay/game');
-          if (!this.running || epoch !== this.epoch) return;
-          if (typeof game === 'object' && game !== null && 'processID' in game && Number.isInteger(game.processID)) {
-            const nextPid = game.processID as number;
-            if (this.processId !== undefined && nextPid !== this.processId) this.sessionId = randomUUID();
-            this.processId = nextPid;
-          }
-        } catch { /* Playback schema may work even when optional identity is unavailable. */ }
       }
       if (!this.running || epoch !== this.epoch) return;
       const sentAtSeconds = this.clock();
@@ -85,12 +78,11 @@ export class ReplayConnection {
       if (!result.success) throw new Error('Unsupported Replay API playback response');
       const p = result.data;
       this.failures = 0;
-      this.onSample({ sessionId: this.sessionId, timeSeconds: p.time, speed: p.speed, paused: p.paused, seeking: p.seeking,
+      this.onSample({ sessionId: this.sessionId!, timeSeconds: p.time, speed: p.speed, paused: p.paused, seeking: p.seeking,
         lengthSeconds: p.length, sentAtSeconds, receivedAtSeconds });
     } catch (error) {
       if (!this.running || epoch !== this.epoch) return;
-      // A disconnected viewer may have restarted with the same PID. Rebind explicitly.
-      if (this.failures === 0) this.sessionId = randomUUID();
+      this.lastIdentityAt = -Infinity;
       this.failures++;
       this.onError(error instanceof Error ? error.message : String(error));
     } finally {

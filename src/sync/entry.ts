@@ -105,7 +105,10 @@ if (!replayCertificate) throw new Error('Replay API certificate path is required
 const replay = new ReplayConnection(new LocalReplayTransport(readFileSync(replayCertificate, 'utf8'), replayPort), sample => {
   snapshot.replay = sample;
   snapshot.connectionError = undefined;
-  if (boundSession && boundSession !== sample.sessionId) { snapshot.offsetSeconds = undefined; boundSession = undefined; }
+  if (boundSession && boundSession !== sample.sessionId) {
+    snapshot.offsetSeconds = undefined; boundSession = undefined; needsOutputBinding = false;
+    dispatch({ type: 'unbind' });
+  }
   record('replay', sample);
   dispatch({ type: 'replay', sample });
   restoreOutputBinding();
@@ -115,12 +118,10 @@ const recovery = new PlaybackRecovery({
     mediaGeneration++;
     engine.interrupt(reason);
     if (scope === 'runtime') {
-      needsOutputBinding = false;
       replay.stop();
-      boundSession = undefined;
-      snapshot.replay = undefined; snapshot.offsetSeconds = undefined;
       snapshot.connectionError = `${reason}. Waiting for fresh replay state.`;
-    } else needsOutputBinding = true;
+    }
+    needsOutputBinding = true;
     snapshot.error = undefined; snapshot.suppressionError = undefined; snapshot.paused = true;
     dispatch({ type: 'reset' });
     record('interruption', reason);
@@ -319,7 +320,7 @@ async function handle(request: Extract<WorkerRequest, { command: unknown }>): Pr
   }
   snapshot.error = undefined;
   if (command.type === 'apply-alignment') {
-    needsOutputBinding = false;
+    needsOutputBinding = command.replaySessionId !== undefined && command.offsetSeconds !== undefined;
     snapshot.offsetSeconds = command.offsetSeconds;
     boundSession = command.replaySessionId;
     dispatch({ type: 'unbind' });
@@ -327,8 +328,12 @@ async function handle(request: Extract<WorkerRequest, { command: unknown }>): Pr
     const range = snapshot.media?.tracks.find(track => track.id === snapshot.media?.selectedTrackId)?.range;
     if (command.offsetSeconds !== undefined && !Number.isFinite(command.offsetSeconds)) throw new Error('Invalid alignment');
     if (snapshot.media && range && command.offsetSeconds !== undefined && latest && latest.sessionId === boundSession && monotonicSeconds() - latest.receivedAtSeconds < 0.3) {
+      needsOutputBinding = false;
       dispatch({ type: 'bind', binding: { replaySessionId: latest.sessionId, offsetSeconds: command.offsetSeconds, startSeconds: range.startSeconds, endSeconds: range.endSeconds } });
     }
+    if (command.replaySessionId && command.offsetSeconds !== undefined && range) {
+      if (controller.snapshot().state === 'preview') dispatch({ type: 'mode', mode: 'follow' });
+    } else dispatch({ type: 'mode', mode: 'preview' });
     return;
   }
   if (command.type === 'load') {
@@ -371,10 +376,4 @@ async function handle(request: Extract<WorkerRequest, { command: unknown }>): Pr
     dispatch({ type: 'unbind' });
   }
   if (command.type === 'volume') { volume = command.volume; await engine.volume(volume); }
-  if (command.type === 'follow') {
-    if (!snapshot.media.tracks.find(track => track.id === snapshot.media?.selectedTrackId)?.range) throw new Error('This audio track has no usable time bounds yet. Preview and manual alignment remain available.');
-    if (snapshot.offsetSeconds === undefined) throw new Error('Set an alignment first');
-    if (!snapshot.replay || snapshot.replay.sessionId !== boundSession || monotonicSeconds() - snapshot.replay.receivedAtSeconds >= 0.3) throw new Error('Wait for a fresh replay connection before listening');
-    dispatch({ type: 'mode', mode: 'follow' });
-  }
 }

@@ -18,7 +18,7 @@ export class PreferenceEdits {
     const failed = [...this.edits].filter(edit => edit.error !== undefined);
     const edit = failed[0];
     if (!edit) return;
-    const label = edit.kind === 'setting' ? { volume: 'Volume', filters: 'Sound filters', mediaFolders: 'Media folders', selectedInstallation: 'League installation' }[edit.key]
+    const label = edit.kind === 'setting' ? { volume: 'Volume', muted: 'Mute', filters: 'Sound filters', mediaFolders: 'Media folders', selectedInstallation: 'League installation' }[edit.key]
       : `${basename(edit.media.path)} · selected audio track`;
     return `${failed.length} unsaved preference${failed.length === 1 ? '' : 's'}. ${label}: ${edit.error}`;
   }
@@ -33,11 +33,14 @@ export class PreferenceEdits {
   stageFilters(filters: Settings['filters']): void {
     this.retain({ kind: 'setting', key: 'filters', value: structuredClone(filters), revision: this.library.nextAlignmentRevision() });
   }
+  stageMuted(muted: boolean): void {
+    this.retain({ kind: 'setting', key: 'muted', value: muted, revision: this.library.nextAlignmentRevision() });
+  }
   stageVolume(volume: number): void {
     this.retain({ kind: 'setting', key: 'volume', value: volume, revision: this.library.nextAlignmentRevision() });
   }
   async flushAudioPreferences(): Promise<void> {
-    const edits = [...this.edits].filter(edit => edit.kind === 'setting' && (edit.key === 'volume' || edit.key === 'filters'));
+    const edits = [...this.edits].filter(edit => edit.kind === 'setting' && (edit.key === 'volume' || edit.key === 'filters' || edit.key === 'muted'));
     for (const edit of edits) await this.commit(edit);
   }
   preferTrack(media: MediaReference, trackKey: string, revision = this.library.nextAlignmentRevision()): Promise<void> {

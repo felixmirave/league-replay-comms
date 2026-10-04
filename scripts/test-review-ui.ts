@@ -221,7 +221,7 @@ async function checkPowerRecovery(window: Page) {
   assert.equal(after.library!.volume, before.library!.volume);
   assert.deepEqual(after.library!.alignment, before.library!.alignment);
   assert.equal(after.library!.recording!.hash, before.library!.recording!.hash);
-  assert.equal(after.offsetSeconds, undefined, 'Runtime alignment must wait for fresh replay confirmation');
+  assert.equal(after.offsetSeconds, before.offsetSeconds, 'Recovery must retain alignment while waiting for a verified replay connection');
   await window.evaluate(() => globalThis.window.review.command({ type: 'retry' }));
   await waitState(window, state => !state.busy && !state.error && state.paused && state.media?.selectedTrackId === before.media!.selectedTrackId);
   await window.evaluate(() => globalThis.window.review.command({ type: 'preview', paused: false }));
@@ -272,7 +272,7 @@ try {
   assert.equal(await window.getByLabel('Recording offset (seconds)', { exact: true }).inputValue(), '2.5');
   await window.getByRole('button', { name: 'Forward 0.1 s', exact: true }).click({ modifiers: ['Alt'] });
   await waitState(window, state => Math.abs(state.offsetSeconds! - 2.51) < 1e-8);
-  assert.equal(await window.getByRole('button', { name: 'Start listening', exact: true }).isDisabled(), true);
+  assert.equal(await window.getByRole('button', { name: 'Start listening', exact: true }).count(), 0);
   await window.getByRole('button', { name: 'Done', exact: true }).click();
   await waitState(window, state => state.workflow?.state === 'ready.offline');
   await window.getByRole('button', { name: 'Adjust timing', exact: true }).click();
@@ -398,7 +398,7 @@ try {
     await app!.evaluate(({ powerMonitor }) => powerMonitor.emit('resume'));
     const refused = await waitState(window, state => !state.busy && state.error?.includes('Recording changed'));
     assert.equal(refused.paused, true);
-    assert.equal(refused.offsetSeconds, undefined);
+    assert.equal(refused.offsetSeconds, beforeReplacement.offsetSeconds, 'A failed restore retains timing but must keep audio paused');
     assert.deepEqual(refused.library!.alignment, beforeReplacement.library!.alignment);
     await writeFile(video, originalVideo);
     await window.getByRole('button', { name: 'Change recording', exact: true }).click();
@@ -429,7 +429,7 @@ try {
     assert('method' in evidence);
     assert.equal(evidence.method, 'transition-midpoint');
       assert.equal(estimate.workflow!.state, 'ready.offline');
-      assert.equal(estimate.library!.boundToRuntime, false, 'Automatic alignment must not start listening');
+      assert.equal(estimate.library!.boundToRuntime, false, 'Offline alignment has no verified viewer to follow');
       await close();
       const renamedClock = join(folder, 'renamed clock café.mkv'); await rename(clockVideo, renamedClock);
       window = await launch();
@@ -445,7 +445,7 @@ try {
       assert.ok(Math.abs(reused.library!.clock!.offsetSeconds! + 100) < 0.06);
       assert.ok(Math.abs(reused.offsetSeconds! + 100) < 0.06, 'Reanalysis must preserve the same midpoint offset');
       assert.equal(await window.locator('.video-preview, .frame-stage, .crop-surface, .crop-inputs').count(), 0);
-      console.log('Real Electron clock reading: top-right detection, offline OCR, cancellation by manual edit, automatic midpoint application, and explicit Start requirement passed.');
+      console.log('Real Electron clock reading: top-right detection, offline OCR, cancellation by manual edit, automatic midpoint application, and verified replay prerequisite passed.');
       console.log('Real Electron recording recovery: automatic timing restored after restart and Unicode rename; reanalysis applies the midpoint.');
     }
   }

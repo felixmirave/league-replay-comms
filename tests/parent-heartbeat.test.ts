@@ -28,6 +28,7 @@ async function workerFixture(overrides: { filters?: () => Promise<void>; interru
   worker.seed();
   return { worker, interruptions, exits, replies, send: (data: unknown) => receive({ data }),
     advance: (seconds: number) => { const end = now + seconds; while (now < end) { now = Math.min(end, now + .05); tick(); } },
+    stall: (seconds: number) => { now += seconds; tick(); },
     settle: () => new Promise<void>(resolve => setImmediate(resolve)) };
 }
 
@@ -47,6 +48,15 @@ it('silences a stalled parent without exiting, then recovers with its alignment 
   expect(fixture.exits).toEqual([]);
   fixture.advance(1);
   expect(fixture.worker.state()).toBe('active');
+});
+
+it('retains the selected recording alignment after a playback timer stall', async () => {
+  const fixture = await workerFixture();
+  fixture.stall(1.5); await fixture.settle();
+  expect(fixture.interruptions).toContain('Playback timer was interrupted');
+  expect(fixture.worker.state()).toBe('active');
+  expect(fixture.worker.alignment()).toBe(12);
+  expect(fixture.exits).toEqual([]);
 });
 
 it('eventually closes an orphaned worker when the parent remains absent', async () => {

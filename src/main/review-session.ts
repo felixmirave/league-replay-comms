@@ -18,6 +18,8 @@ export interface PlaybackPort { send(command: PlaybackCommand): Promise<ProbeSna
 export class ReviewSession {
   private view: LibraryView;
   private runtimeId?: string;
+  private choosing = false;
+  private automaticBinding = false;
   private recentId?: string;
   private media?: { path: string; version: FileVersion; hash?: string; importId?: string; trackKey: string; preferenceRevision: number; trackChosen: boolean; probe?: MediaProbe };
   private alignment?: Alignment;
@@ -81,8 +83,23 @@ export class ReviewSession {
     this.exitBarrier = undefined; this.releaseExit = undefined; release?.();
   }
   onPlayback(snapshot: ProbeSnapshot): void {
-    if (this.runtimeId && (snapshot.connectionError || snapshot.replay?.sessionId !== this.runtimeId)) {
-      this.runtimeId = undefined; this.view.status = 'Connection changed. Resume listening when League is ready.'; this.changed();
+    const runtime = snapshot.replay?.sessionId;
+    if (this.runtimeId && runtime && runtime !== this.runtimeId) {
+      this.runtimeId = undefined;
+      this.view.needsRecordingChoice = true;
+      this.view.status = 'A new replay opened. Choose its recording.';
+      this.changed();
+    }
+    if (!this.runtimeId && runtime && !snapshot.connectionError && this.media && !this.view.needsRecordingChoice) this.runtimeId = runtime;
+    if (!this.automaticBinding && !this.closed && !this.choosing && !this.view.needsRecordingChoice
+      && this.view.clock?.status !== 'running' && !this.view.alignmentConflict
+      && this.media?.trackChosen && this.alignment && this.runtimeId && !snapshot.busy && !snapshot.connectionError
+      && !snapshot.error && snapshot.sync.state === 'preview'
+      && snapshot.media?.tracks.find(track => track.id === snapshot.media?.selectedTrackId)?.range) {
+      this.automaticBinding = true;
+      void this.mutate(() => this.applyAlignment()).catch(error => {
+        this.view.error = error instanceof Error ? error.message : String(error); this.changed();
+      }).finally(() => { this.automaticBinding = false; });
     }
   }
   selectRecording(id: string): Promise<void> { return this.mutate(async () => {
@@ -99,7 +116,7 @@ export class ReviewSession {
     if (this.media && !this.runtimeId) await this.playback.send({ type: 'preview', paused: true });
   }); }
   stop(): Promise<void> { return this.mutate(async () => {
-    this.runtimeId = undefined;
+    this.choosing = true;
     if (this.playback.snapshot().media) await this.playback.send({ type: 'preview', paused: true });
     this.changed();
   }); }
@@ -110,8 +127,12 @@ export class ReviewSession {
   setManualOffset(offsetSeconds: number): Promise<void> { return this.mutate(() => this.manualOffset(offsetSeconds)); }
   selectTrack(id: number, confirm = true): Promise<void> { return this.mutate(async () => {
     if (!this.media) throw new Error('Open a recording first');
-    if (this.playback.snapshot().media?.selectedTrackId === id && this.media.trackChosen && confirm) return;
+    if (this.playback.snapshot().media?.selectedTrackId === id && this.media.trackChosen && confirm) {
+      if (this.choosing) { this.choosing = false; await this.applyAlignment(); }
+      return;
+    }
     this.searchAbort?.abort();
+    this.choosing = !confirm;
     await this.playback.send({ type: 'preview', paused: true });
     await this.clearAlignment();
     const selected = await this.playback.send({ type: 'track', trackId: id });
@@ -122,14 +143,9 @@ export class ReviewSession {
     await this.saveTrackPreference();
     this.initialClock = { mediaEpoch: this.mediaEpoch, sequence: this.clockSequence }; this.maybeStartInitialClock();
   }); }
-  follow(): Promise<void> { return this.mutate(async () => {
-    const runtime = this.currentRuntime();
-    if (!runtime) throw new Error('Open a replay in League before listening.');
-    if (!this.media?.trackChosen) throw new Error('Choose the track containing your comms first.');
-    if (!this.alignment) throw new Error('Set an alignment first');
-    this.runtimeId = runtime;
-    try { await this.applyAlignment(); await this.playback.send({ type: 'follow' }); }
-    catch (error) { this.runtimeId = undefined; throw error; }
+  resume(): Promise<void> { return this.mutate(async () => {
+    if (this.choosing) { this.choosing = false; await this.applyAlignment(); }
+    this.changed();
   }); }
   retrySave(): Promise<void> { return this.mutate(() => this.retryPending()); }
   setFilters(filters: FilterSettings): Promise<void> { return this.mutate(async () => {
@@ -155,7 +171,14 @@ export class ReviewSession {
     this.refresh();
     clearTimeout(this.audioPreferenceTimer);
     this.audioPreferenceTimer = setTimeout(() => { void this.flushAudioPreferences().catch(() => undefined); }, 250);
-    await this.playback.send({ type: 'volume', volume });
+    await this.playback.send({ type: 'volume', volume: this.effectiveVolume() });
+  }); }
+  private effectiveVolume(): number { const settings = this.preferences.settings(); return settings.muted ? 0 : settings.volume; }
+  setMuted(muted: boolean): Promise<void> { return this.mutate(async () => {
+    this.preferences.stageMuted(muted); this.refresh();
+    clearTimeout(this.audioPreferenceTimer);
+    this.audioPreferenceTimer = setTimeout(() => { void this.flushAudioPreferences().catch(() => undefined); }, 250);
+    await this.playback.send({ type: 'volume', volume: this.effectiveVolume() });
   }); }
   addFolder(path: string): Promise<void> { return this.mutate(async () => {
     const folders = this.preferences.settings().mediaFolders;
@@ -185,6 +208,8 @@ export class ReviewSession {
     const epoch = ++this.mediaEpoch;
     this.media = undefined; this.view.alignmentConflict = false; this.view.locating = false;
     await this.clearAlignment();
+    this.choosing = false; this.view.needsRecordingChoice = false;
+    this.runtimeId = this.currentRuntime();
     this.initialClock = { mediaEpoch: epoch, sequence: this.clockSequence };
     this.view.recording = { path }; this.view.missingRecording = false;
     this.view.timingAnalysis = undefined;
@@ -199,7 +224,7 @@ export class ReviewSession {
     let opened = await this.playback.send({ type: 'load', path, probe });
     if (!opened.media) throw new Error('Recording did not open');
     if (!sameFileVersion(version, await fileVersion(path))) throw new Error('Recording changed while opening. Reopen it before restoring an alignment.');
-    await this.playback.send({ type: 'volume', volume: this.preferences.settings().volume });
+    await this.playback.send({ type: 'volume', volume: this.effectiveVolume() });
     const provisional = await this.library.beginImport(path, version);
     if (!restoreTrack) restoreTrack = this.preferences.preferredTrack({ path, version, hash: cachedIdentity?.sha256, importId: provisional.id })?.trackKey;
     let restoredTrack = false;
@@ -280,6 +305,7 @@ export class ReviewSession {
     if (this.media.probe?.streams.some(stream => stream.type === 'video')) this.beginVideoAnalysis(false);
   }
   private beginVideoAnalysis(force = true): void {
+    this.choosing = false;
     const media = this.media, opened = this.playback.snapshot().media;
     const video = media?.probe?.streams.find(stream => stream.type === 'video');
     if (!this.clocks || !media || !opened || !video || opened.originSeconds === undefined) throw new Error('Open a video recording with usable timestamps first');
@@ -373,7 +399,10 @@ export class ReviewSession {
     } finally { this.changed(); }
   }
   private async applyAlignment(): Promise<void> {
-    await this.playback.send({ type: 'apply-alignment', offsetSeconds: this.alignment && this.alignment.baseOffsetSeconds + this.alignment.correctionSeconds, replaySessionId: this.runtimeId });
+    if (!this.runtimeId && !this.view.needsRecordingChoice) this.runtimeId = this.currentRuntime();
+    const follow = !this.choosing && !this.view.needsRecordingChoice && this.media?.trackChosen;
+    await this.playback.send({ type: 'apply-alignment', offsetSeconds: this.alignment && this.alignment.baseOffsetSeconds + this.alignment.correctionSeconds,
+      replaySessionId: follow ? this.runtimeId : undefined });
   }
   private async applyAndPersist(): Promise<void> {
     // An engine failure must not prevent saving an edit; a disk failure must not
@@ -384,7 +413,7 @@ export class ReviewSession {
   }
   private async clearAlignment(): Promise<void> {
     this.cancelClock();
-    this.alignment = undefined; this.runtimeId = undefined;
+    this.alignment = undefined;
     await this.playback.send({ type: 'apply-alignment' });
   }
   private trackKey(snapshot: ProbeSnapshot): string {
@@ -434,7 +463,7 @@ export class ReviewSession {
       ...Object.values(data.pendingImports).map(file => ({ id: `pending:${file.id}`, name: basename(file.path), path: file.path, updatedAt: file.createdAt, pending: true })),
     ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const settings = this.preferences.settings();
-    this.view.folders = settings.mediaFolders; this.view.volume = settings.volume; this.view.filters = settings.filters; this.changed();
+    this.view.folders = settings.mediaFolders; this.view.volume = settings.volume; this.view.muted = settings.muted; this.view.filters = settings.filters; this.changed();
   }
   private mutate(operation: () => Promise<void>): Promise<void> {
     const result = this.changes.then(async () => { await this.exitBarrier; if (this.closed) throw new Error('Review session closed'); return operation(); });
