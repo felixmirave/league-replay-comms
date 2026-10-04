@@ -32,16 +32,17 @@ export async function writeWav(path: string, pcm: Buffer) {
   await writeFile(path, Buffer.concat([header, pcm]));
 }
 function spectrum(samples: Float64Array): Float64Array {
-  const real = samples.slice(), imaginary = new Float64Array(fftSize);
-  for (let i = 1, j = 0; i < fftSize; i++) {
-    let bit = fftSize >> 1;
+  const size = samples.length;
+  const real = samples.slice(), imaginary = new Float64Array(size);
+  for (let i = 1, j = 0; i < size; i++) {
+    let bit = size >> 1;
     for (; j & bit; bit >>= 1) j ^= bit;
     j ^= bit;
     if (i < j) { const value = real[i]!; real[i] = real[j]!; real[j] = value; }
   }
-  for (let width = 2; width <= fftSize; width *= 2) {
+  for (let width = 2; width <= size; width *= 2) {
     const angle = -2 * Math.PI / width;
-    for (let start = 0; start < fftSize; start += width) {
+    for (let start = 0; start < size; start += width) {
       for (let j = 0; j < width / 2; j++) {
         const a = start + j, b = a + width / 2, cos = Math.cos(angle * j), sin = Math.sin(angle * j);
         const re = real[b]! * cos - imaginary[b]! * sin, im = real[b]! * sin + imaginary[b]! * cos;
@@ -50,31 +51,47 @@ function spectrum(samples: Float64Array): Float64Array {
       }
     }
   }
-  return real.slice(0, fftSize / 2).map((re, i) => Math.hypot(re, imaginary[i]!));
+  return real.slice(0, size / 2).map((re, i) => Math.hypot(re, imaginary[i]!));
+}
+function readWindow(pcm: Buffer, start: number, length: number) {
+  const samples = new Float64Array(length);
+  let square = 0;
+  for (let i = 0; i < length; i++) {
+    const value = pcm.readInt16LE((start + i) * 2) / 32768;
+    square += value * value;
+    samples[i] = value * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (length - 1)));
+  }
+  return { samples, rms: Math.sqrt(square / length) };
+}
+function decodeTone(samples: Float64Array): Pick<AudioFrame, 'frequency' | 'track' | 'sourceSeconds'> {
+  const magnitudes = spectrum(samples);
+  let peak = 1;
+  for (let i = 2; i < magnitudes.length - 1; i++) if (magnitudes[i]! > magnitudes[peak]!) peak = i;
+  const left = Math.log(magnitudes[peak - 1]! + 1e-20), center = Math.log(magnitudes[peak]! + 1e-20), right = Math.log(magnitudes[peak + 1]! + 1e-20);
+  const adjustment = Math.max(-0.5, Math.min(0.5, 0.5 * (left - right) / (left - 2 * center + right)));
+  const frequency = (peak + adjustment) * sampleRate / samples.length;
+  for (const [index, base] of bases.entries()) {
+    const tile = Math.round((frequency - base) / frequencyStep);
+    if (tile >= 0 && tile < 256 && Math.abs(frequency - (base + tile * frequencyStep)) < 10) return { frequency, track: index + 1, sourceSeconds: (tile + 0.5) * tileSeconds };
+  }
+  return { frequency };
 }
 export function analyzePcm(pcm: Buffer, origin = 0): AudioFrame[] {
   const frames: AudioFrame[] = [];
   for (let start = 0; start + fftSize <= pcm.length / 2; start += 960) {
-    const samples = new Float64Array(fftSize);
-    let square = 0;
-    for (let i = 0; i < fftSize; i++) {
-      const value = pcm.readInt16LE((start + i) * 2) / 32768;
-      square += value * value;
-      samples[i] = value * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (fftSize - 1)));
-    }
-    const frame: AudioFrame = { at: origin + (start + fftSize / 2) / sampleRate, rms: Math.sqrt(square / fftSize) };
+    const window = readWindow(pcm, start, fftSize);
+    const frame: AudioFrame = { at: origin + (start + fftSize / 2) / sampleRate, rms: window.rms };
     if (frame.rms > 0.0005) {
-      const magnitudes = spectrum(samples);
-      let peak = 1;
-      for (let i = 2; i < magnitudes.length - 1; i++) if (magnitudes[i]! > magnitudes[peak]!) peak = i;
-      const left = Math.log(magnitudes[peak - 1]! + 1e-20), center = Math.log(magnitudes[peak]! + 1e-20), right = Math.log(magnitudes[peak + 1]! + 1e-20);
-      const adjustment = Math.max(-0.5, Math.min(0.5, 0.5 * (left - right) / (left - 2 * center + right)));
-      const frequency = (peak + adjustment) * sampleRate / fftSize;
-      frame.frequency = frequency;
-      for (const [index, base] of bases.entries()) {
-        const tile = Math.round((frequency - base) / frequencyStep);
-        if (tile >= 0 && tile < 256 && Math.abs(frequency - (base + tile * frequencyStep)) < 10) {
-          frame.track = index + 1; frame.sourceSeconds = (tile + 0.5) * tileSeconds; break;
+      Object.assign(frame, decodeTone(window.samples));
+      if (frame.sourceSeconds === undefined) {
+        // A window across a code transition has two nearby tones; fitting one
+        // peak invents a frequency between them. Require both halves to decode
+        // independently to adjacent codes on the same track before accepting it.
+        const a = readWindow(pcm, start, fftSize / 2), b = readWindow(pcm, start + fftSize / 2, fftSize / 2);
+        const first = decodeTone(a.samples), second = decodeTone(b.samples);
+        if (a.rms > 0.0005 && b.rms > 0.0005 && first.track === second.track && first.sourceSeconds !== undefined && second.sourceSeconds !== undefined && Math.abs(first.sourceSeconds - second.sourceSeconds) === tileSeconds) {
+          frame.track = first.track;
+          frame.sourceSeconds = (first.sourceSeconds + second.sourceSeconds) / 2;
         }
       }
     }

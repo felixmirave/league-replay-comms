@@ -75,7 +75,9 @@ describe('review library', () => {
     const pending = await library.beginImport(media.path, media.version);
     const restart = await ReviewLibrary.open(directory);
     expect((await restart.beginImport(media.path, media.version)).id).toBe(pending.id);
-    await writeFile(media.path, 'modified');
+    // Use a different size: a rapid same-size overwrite can retain both
+    // timestamps on filesystems with coarse timestamp resolution.
+    await writeFile(media.path, 'modified recording');
     const replacement = await identifyFile(media.path);
     expect(replacement.sha256).not.toBe(media.sha256);
     expect(restart.cachedIdentity( media.path, replacement.version)).toBeUndefined();

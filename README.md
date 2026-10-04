@@ -4,7 +4,8 @@ A Windows companion for listening to original-match comms while reviewing a repl
 in League. The application follows the replay's clock, pause state, speed, and seeks.
 
 Implementation is in progress. The application supports media preview, audio-track
-selection, a single live timing offset, replay following, diagnostic export, and a
+selection, radio voice, noise suppression, sound positioning, a single live timing
+offset, replay following, diagnostic export, and a
 saved recording library. Background content hashing restores track and timing after
 recording renames or moves to known/configured folders. Automatic video alignment
 uses the midpoint between consecutive frames where the game timer advances one
@@ -28,7 +29,7 @@ There are no waveform, timestamp-pair, or clock-region selection steps. The sele
 pair of clock frames is cached by recording contents; its midpoint is recomputed when reused.
 
 Unsaved alignment changes remain attached to their recording and audio track when
-you switch views. Recording/track choices, volume, media
+you switch views. Recording/track choices, volume, sound filters, media
 folders, and installation selection also retain failed saves for retry. A saved
 recording and track can be restored before an alignment has been set; following
 still requires alignment. If a save fails, retry pending changes from the review
@@ -39,7 +40,7 @@ the unfinished import at its unchanged original path, including its track and
 manual edits. A changed or missing file requires explicit reopening.
 
 System interruption recovery stops the old player and reloads the unchanged
-recording paused with its selected track and volume. Saved alignment is retained;
+recording paused with its selected track, volume, and sound filters. Saved alignment is retained;
 select **Start listening** again before following. **Retry playback** also restarts the
 player. Output changes also stop and replace the player, preserving the recording,
 track, volume, and saved offset. Preview returns paused; following must obtain a
@@ -50,6 +51,46 @@ requirements.
 
 See [the implementation plan](IMPLEMENTATION_PLAN.md) and
 [current validation results](tests/acceptance/STATUS.md).
+
+## Sound filters
+
+Below comms volume, **Radio voice**, **Noise suppression**, and **Sound position**
+each have a toggle and slider. Settings are shared with the Recording section in
+Settings and saved automatically. Toggles, radio strength, and sound position apply
+immediately; suppression amount changes apply after a short idle interval. Filter
+errors appear beside these controls and do not replace playback errors. Radio strength runs from lighter to stronger
+without percentage labels. The prototype's endpoints and defaults are preserved,
+including the fixed +12 dB radio gain and default 60% left position. Slider
+readouts omit technical units; sound position identifies the center.
+
+Bundled FFmpeg streams the chosen track as 48 kHz stereo PCM. Independent workers
+prepare original audio and DeepFilterNet3 mono audio with bounded read-ahead; the pinned
+model's 1,440-sample delay is verified and corrected, including seek history and
+final speech samples. A hidden, isolated Web Audio renderer uses the prototype's
+two high/low-pass pairs, presence filter, stereo panner, smooth gain changes, and
+output compressor. Its measured lookahead is included in the device audio clock.
+mpv retains native track and timestamp discovery. Replay speed uses waveform
+similarity overlap-add to preserve voice pitch with one timeline for both paths.
+Seeks discard the previous working buffer and resume original audio after a small
+prefill. When suppression catches up, the worklet fades into its samples over
+50 ms at the same source position. If suppression fails, original audio keeps
+playing and the filter controls explain that suppression is unavailable.
+Suppression edits prepare independently without pausing playback. The player retains only buffer ranges; PCM is transferred to
+the worklet in incremental ranges without resending previously published samples. Decoder EOF flushes only the
+remaining filter tail, including when the audio ends before the video. There is no disk cache or retention of prepared sections.
+Noise suppression reduces background sound; it cannot isolate particular speakers.
+The model and assets are bundled locally; recording data stays on the computer.
+
+`npm run test:filters-browser` tests the real model, native decoding, filter
+combinations, seeks, track changes, replay speed, and the React controls in Chromium.
+Install a Playwright-compatible Chromium or set `COMMS_CHROMIUM_EXECUTABLE`.
+`COMMS_FFMPEG` can override the bundled FFmpeg executable for this test.
+`node scripts/benchmark-audio-seek.ts` measures seek preparation and first rendered
+sound with suppression off/on in generated FLAC and AAC/Matroska recordings.
+`COMMS_SEEK_REPORT` saves a JSON report; use the same Chromium/FFmpeg overrides.
+Measurements exclude League observation latency and physical device output.
+Real Windows output-device changes and physical League synchronization still need
+acceptance testing.
 
 ## Development
 
@@ -94,6 +135,7 @@ npm run test:engine
 npm run smoke:ui
 npm run test:startup-ui
 npm run test:volume-ui
+npm run test:filters-browser
 npm run test:timing-ui
 npm run smoke:driver
 npm run test:review-ui

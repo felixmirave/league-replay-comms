@@ -1,6 +1,6 @@
 {
   "name": "league-replay-comms",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "A local comms companion for League replay review",
   "author": "League Replay Comms contributors",
@@ -34,6 +34,7 @@
     "smoke:driver": "npm run build && node scripts/smoke-driver.ts",
     "test:review-ui": "npm run build && node scripts/test-review-ui.ts",
     "test:timing-ui": "node --test scripts/test-timing-ui.ts",
+    "test:filters-browser": "npm run build && node scripts/test-filters-browser.ts",
     "test:volume-ui": "node --test scripts/test-volume-ui.ts",
     "test:startup-ui": "npm run build && node --test scripts/test-startup-ui.ts",
     "check": "npm run typecheck && npm test && npm run build",
@@ -44,6 +45,7 @@
     "test:dev-verification": "node --test scripts/replay-simulator.test.ts scripts/audio-verification.test.ts scripts/linux-runtime.test.ts"
   },
   "dependencies": {
+    "@lofcz/deepfilternet-web": "0.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tesseract.js": "7.0.0",

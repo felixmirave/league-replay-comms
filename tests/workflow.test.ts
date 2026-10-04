@@ -43,6 +43,15 @@ describe('guided review state machine', () => {
     state.connectionError = undefined;
     expect(flow.observe(state).state).toBe('ready');
   });
+  it('keeps listening visible for preference edits and distinguishes opening a file', () => {
+    const flow = new GuidedWorkflow(), state = facts(); recording(state); align(state);
+    state.library!.boundToRuntime = true; state.sync.state = 'following';
+    expect(flow.observe(state).state).toBe('listening');
+    state.library!.filters = { radio: { enabled: true, strength: 110 }, noise: { enabled: true, attenuation: 30 }, position: { enabled: false, pan: -60 } };
+    expect(flow.observe(state).state).toBe('listening');
+    state.busy = true;
+    expect(flow.observe(state).state).toBe('recording.opening');
+  });
   it('skips setup when League is already reachable, without requesting any replay identity', () => {
     const flow = new GuidedWorkflow(), state = facts();
     state.setup!.searching = true;

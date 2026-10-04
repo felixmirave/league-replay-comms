@@ -34,6 +34,8 @@ export class Synchronizer {
   private commandedPaused = true;
   private commandedRate = 1;
   private attempts = 0;
+  private preparationSeconds = 0;
+  private starting?: { position: number; at: number; delay: number; rate: number };
   private status: SyncStatus = { state: 'preview', reason: 'Preview controls the recording', generation: 0 };
 
   constructor(private readonly config: ControllerConfig = initialControllerConfig) {}
@@ -72,11 +74,14 @@ export class Synchronizer {
       if (this.validAudio(event.sample, now) && (!this.audio || event.sample.observedAtSeconds >= this.audio.observedAtSeconds)) {
         if (this.audio && event.sample.outputRevision !== this.audio.outputRevision) this.invalidate(now);
         this.audio = event.sample;
+        if (!event.sample.paused) this.starting = undefined;
       }
     } else if (event.type === 'seek-complete') {
       if (this.pending?.generation === event.generation) {
+        const elapsed = Math.max(0, now - this.pending.startedAtSeconds);
         this.pending = undefined;
         if (event.generation === this.generation && this.validAudio(event.sample, now)) {
+          this.preparationSeconds = Math.max(this.preparationSeconds, elapsed);
           this.audio = event.sample;
           this.recovery = false;
         }
@@ -142,14 +147,29 @@ export class Synchronizer {
     const nominalRate = replay.speed || 1;
     const audio = this.audio;
     const freshAudio = audio && this.validAudio(audio, now) && !audio.seeking;
-    const position = freshAudio ? audio.positionSeconds + (audio.paused ? 0 : audio.rate * (now - audio.observedAtSeconds)) : NaN;
-    const error = target - position;
+    // The first playing observation may arrive after another replay update.
+    // Until then, project the scheduled audible start rather than treating its
+    // still-paused observation as audio that is ahead of League.
+    const position = freshAudio ? this.starting && !this.commandedPaused && audio.paused
+      ? this.starting.position + (now - this.starting.at - this.starting.delay) * this.starting.rate
+      : audio.positionSeconds + (audio.paused ? 0 : audio.rate * (now - audio.observedAtSeconds)) : NaN;
+    const startDelay = this.commandedPaused && audio?.paused && !replay.paused && Number.isFinite(audio.startDelaySeconds)
+      ? Math.max(0, audio.startDelaySeconds!) : 0;
+    const error = target + startDelay * nominalRate - position;
     if (this.pending) {
       this.pause(actions, true);
       if (now - this.pending.startedAtSeconds > this.config.seekTimeoutSeconds) {
         this.fault = 'Recording seek timed out. Retry playback.';
         setStatus('error', this.fault);
       } else setStatus('recovering', 'Seeking the recording', { targetSeconds: target });
+      return actions;
+    }
+    // A prepared seek can finish sooner than the previous one. Keep its future
+    // position paused until League reaches it rather than throwing that work away.
+    if (!this.recovery && this.commandedPaused && freshAudio && audio.paused && !replay.paused
+      && error < -this.config.deadbandSeconds && -error <= (this.preparationSeconds + startDelay) * nominalRate + this.config.resyncSeconds) {
+      this.pause(actions, true);
+      setStatus('recovering', 'Waiting for the replay to reach prepared audio', { targetSeconds: target });
       return actions;
     }
     if (this.recovery || !freshAudio || Math.abs(error) > this.config.resyncSeconds) {
@@ -162,7 +182,10 @@ export class Synchronizer {
           setStatus('error', this.fault);
         } else {
           this.pending = { generation: this.generation, startedAtSeconds: now };
-          actions.push({ type: 'seek', targetSeconds: target, generation: this.generation });
+          // Preparation runs while League advances. Aim ahead by its measured
+          // duration; paused replays always seek to the exact current position.
+          const lead = replay.paused || this.preparationSeconds <= this.config.deadbandSeconds ? 0 : this.preparationSeconds * nominalRate;
+          actions.push({ type: 'seek', targetSeconds: Math.min(binding.endSeconds - 0.001, target + lead + startDelay * nominalRate), generation: this.generation });
         }
       }
       return actions;
@@ -173,6 +196,9 @@ export class Synchronizer {
     const correction = !replay.paused && Math.abs(error) > deadband
       ? Math.max(-this.config.maxRateCorrection, Math.min(this.config.maxRateCorrection, error / nominalRate)) : 0;
     this.rate(actions, nominalRate * (1 + correction));
+    if (this.commandedPaused && !replay.paused && audio) {
+      this.starting = { position: audio.positionSeconds, at: now, delay: startDelay, rate: this.commandedRate };
+    }
     this.pause(actions, replay.paused);
     setStatus(replay.paused ? 'paused' : 'following', replay.paused ? 'Replay paused' : 'Following replay', { targetSeconds: target, errorSeconds: error, rate: this.commandedRate });
     return actions;
@@ -183,6 +209,7 @@ export class Synchronizer {
     this.recovery = true;
     this.settledSince = now;
     this.attempts = 0;
+    this.preparationSeconds = 0;
     // Keep physical work pending until its completion. Its generation is now obsolete.
   }
 
@@ -210,6 +237,7 @@ export class Synchronizer {
     return sample.timeSeconds + (sample.paused || sample.seeking ? 0 : Math.max(0, at - this.sampleTime(sample)) * sample.speed);
   }
   private pause(actions: PlaybackAction[], paused: boolean): void {
+    if (paused) this.starting = undefined;
     if (this.commandedPaused !== paused) { actions.push({ type: 'pause', paused }); this.commandedPaused = paused; }
   }
   private rate(actions: PlaybackAction[], rate: number): void {

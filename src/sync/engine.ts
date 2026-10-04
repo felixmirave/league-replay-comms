@@ -99,7 +99,7 @@ export class MediaEngine {
       const originSeconds = typeof rawOrigin === 'number' && Number.isFinite(rawOrigin) ? rawOrigin : undefined;
       const tracks: Track[] = raw.filter(t => t.type === 'audio' && Number.isInteger(t.id)).map(t => {
         const stream = probe?.streams.find(stream => stream.type === 'audio' && stream.index === t['ff-index']);
-        return { id: t.id, title: t.title || stream?.title || `Audio ${t.id}`, language: t.lang ?? stream?.language, selected: !!t.selected, ffIndex: t['ff-index'],
+        return { id: t.id, title: t.title || stream?.title || `Audio ${t.id}`, language: t.lang ?? stream?.language, selected: !!t.selected, ffIndex: t['ff-index'], channels: stream?.channels ?? t['demux-channel-count'],
           range: stream && probe && originSeconds !== undefined ? streamRange(stream, probe, originSeconds) : undefined };
       });
       if (!tracks.length) throw new Error('Recording contains no audio track');

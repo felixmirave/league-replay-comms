@@ -18,6 +18,9 @@ export interface ReplaySample {
 }
 
 export interface AudioSample {
+  suppressionError?: string;
+  /** Delay from starting paused playback to its first audible sample. */
+  startDelaySeconds?: number;
   outputRevision?: number;
   positionSeconds: number;
   observedAtSeconds: number;

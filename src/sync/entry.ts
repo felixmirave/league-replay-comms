@@ -1,7 +1,11 @@
+import { seekTimeoutSeconds } from '../shared/playback-timeouts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Synchronizer, initialControllerConfig } from './controller';
 import { MediaEngine } from './engine';
+import { FilteredEngine } from './filtered-engine';
+import type { AudioReply } from '../shared/audio-engine';
+import { defaultFilters } from '../shared/filters';
 import { LocalReplayTransport, ReplayConnection } from './replay';
 import { monotonicSeconds, type ControllerEvent, type Binding } from '../shared/domain';
 import { initialSnapshot, type ProbeSnapshot, type WorkerRequest, type WorkerResponse } from '../shared/protocol';
@@ -14,17 +18,21 @@ import { DiagnosticTrace } from './trace';
 const resources = process.argv[2];
 if (!resources || !process.parentPort) throw new Error('Sync process requires its resource path and parent port');
 const parent = process.parentPort;
-const controller = new Synchronizer();
-const engine = new MediaEngine(join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/mpv.exe' : 'linux-x64/mpv'), join(resources, 'scripts/heartbeat.lua'), process.argv[3] === '--test-null-audio' ? 'null' : undefined, output => {
+const controllerConfig = { ...initialControllerConfig, seekTimeoutSeconds, settleSeconds: 0 };
+const controller = new Synchronizer(controllerConfig);
+const nativeEngine = new MediaEngine(join(resources, 'bin', process.platform === 'win32' ? 'win32-x64/mpv.exe' : 'linux-x64/mpv'), join(resources, 'scripts/heartbeat.lua'), 'null', output => {
   record('output-interrupted', output);
   if (!closing && recovery.state === 'active') void recovery.recover('Audio output changed', 'output');
 });
+const engine = new FilteredEngine(nativeEngine, message => parent.postMessage(message), () => { if (!closing && recovery.state === 'active') void recovery.recover('Audio output was interrupted', 'output'); });
+let filters = defaultFilters();
 let snapshot: ProbeSnapshot = structuredClone(initialSnapshot);
 let closing = false;
 let loading = false;
 let observing = false;
 let engineSeek: Promise<void> | undefined;
 let lastParentHeartbeat = monotonicSeconds();
+let parentInterrupted = false;
 let lastTickAt = lastParentHeartbeat;
 let lastPowerSequence = 0;
 let lastPowerState: 'suspend' | 'resume' | undefined;
@@ -32,6 +40,19 @@ let mediaGeneration = 0;
 let boundSession: string | undefined;
 let needsOutputBinding = false;
 let commandQueue = Promise.resolve();
+const requests = new Map<number, { canceled: boolean; active: boolean; generation: number; timer?: ReturnType<typeof setTimeout> }>();
+function cancelRequest(id: number) {
+  const request = requests.get(id);
+  if (!request || request.canceled) return;
+  request.canceled = true;
+  if (request.active && request.generation === recovery.generation && !closing) {
+    // Invalidate physical work immediately; the existing recovery path drains
+    // the canceled command before reopening the last accepted recording.
+    const scope = recovery.busy ? 'runtime' : 'output';
+    recovery.suspend('Playback operation timed out', scope);
+    void recovery.recover('Playback operation timed out', scope);
+  }
+}
 let lastRecording: { path: string; version: FileVersion; probe?: MediaProbe } | undefined;
 let volume = 100;
 const trace = new DiagnosticTrace();
@@ -100,14 +121,14 @@ const recovery = new PlaybackRecovery({
       snapshot.replay = undefined; snapshot.offsetSeconds = undefined;
       snapshot.connectionError = `${reason}. Waiting for fresh replay state.`;
     } else needsOutputBinding = true;
-    snapshot.error = undefined; snapshot.paused = true;
+    snapshot.error = undefined; snapshot.suppressionError = undefined; snapshot.paused = true;
     dispatch({ type: 'reset' });
     record('interruption', reason);
   },
   drain: async () => { await commandQueue; await engineSeek; },
   restore: restoreRecording,
   ready: scope => {
-    snapshot.error = undefined; lastParentHeartbeat = monotonicSeconds();
+    snapshot.error = undefined;
     dispatch({ type: 'retry' });
     if (scope === 'runtime') replay.start();
     else {
@@ -153,6 +174,7 @@ async function restoreRecording(): Promise<void> {
   if (position !== undefined && position > 0 && position < media.durationSeconds && (!track.range || (position >= track.range.startSeconds && position < track.range.endSeconds))) await engine.seek(position);
   let appliedVolume: number;
   do { appliedVolume = volume; await engine.volume(appliedVolume); } while (appliedVolume !== volume);
+  await engine.filters(filters);
   const observed = await engine.observe();
   if (!observed.paused || observed.seeking) throw new Error('Restored output has not settled while paused');
   await unchanged();
@@ -168,11 +190,20 @@ const ticker = setInterval(() => {
   lastTickAt = now;
   // On Windows the monotonic clock includes sleep. A power callback can arrive
   // after this timer: stop the old player before applying either watchdog.
-  if (gap > 1 && !closing) {
+  if (gap > 1 && !closing && !parentInterrupted) {
     lastParentHeartbeat = now;
     void recovery.recover('Playback timer was interrupted');
   }
-  if (now - lastParentHeartbeat > 2) { void close(); return; }
+  const parentAge = now - lastParentHeartbeat;
+  // A briefly stalled main process is recoverable. Silence output immediately,
+  // retaining its alignment, and wait for a real heartbeat before restoring it.
+  // Only a prolonged loss of the parent retires this orphaned worker.
+  if (parentAge > 30) { record('parent-unavailable', { seconds: parentAge }); void close(); return; }
+  if (parentAge > 2 && !parentInterrupted && !closing) {
+    parentInterrupted = true;
+    record('parent-interrupted', { seconds: parentAge });
+    recovery.suspend('Application response was interrupted', 'output');
+  }
   if (recovery.state !== 'active') { send({ type: 'snapshot', snapshot: currentSnapshot() }); return; }
   dispatch({ type: 'tick' });
   if (snapshot.media && !loading && !observing && !engineSeek) {
@@ -180,6 +211,7 @@ const ticker = setInterval(() => {
     const generation = mediaGeneration;
     void engine.observe().then(sample => {
       if (generation !== mediaGeneration) return;
+      snapshot.suppressionError = sample.suppressionError;
       snapshot.positionSeconds = sample.positionSeconds;
       snapshot.paused = sample.paused;
       record('audio', sample);
@@ -199,9 +231,18 @@ async function close(): Promise<void> {
   process.exit(0);
 }
 
-parent.on('message', ({ data }: { data: WorkerRequest }) => {
+parent.on('message', ({ data }: { data: WorkerRequest | AudioReply }) => {
+  if ('type' in data && data.type === 'audio-reply') { engine.reply(data); return; }
   if ('type' in data) {
-    if (data.type === 'heartbeat') lastParentHeartbeat = monotonicSeconds();
+    if (data.type === 'cancel') { cancelRequest(data.id); return; }
+    if (data.type === 'heartbeat') {
+      lastParentHeartbeat = monotonicSeconds();
+      if (parentInterrupted && !closing) {
+        parentInterrupted = false;
+        record('parent-restored', {});
+        if (lastPowerState !== 'suspend') void recovery.recover('Application response restored', 'output');
+      }
+    }
     else if (data.type === 'power' && data.sequence > lastPowerSequence && !closing) {
       lastPowerSequence = data.sequence;
       if (data.state !== lastPowerState) {
@@ -213,11 +254,17 @@ parent.on('message', ({ data }: { data: WorkerRequest }) => {
     }
     return;
   }
+  if (data.deadline !== undefined && data.deadline <= Date.now()) { send({ type: 'reply', id: data.id, error: 'Playback operation timed out' }); return; }
   if (data.command.type === 'retry') {
     if (recovery.state === 'suspended' || closing) { send({ type: 'reply', id: data.id, error: 'Wait for the system to resume before retrying playback.' }); return; }
-    void recovery.recover('Retrying playback').then(() => send({ type: 'reply', id: data.id, ...(recovery.state === 'failed' ? { error: snapshot.error } : { data: currentSnapshot() }) }));
+    const retry = { canceled: false, active: true, generation: recovery.generation, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+    requests.set(data.id, retry);
+    if (data.deadline !== undefined) retry.timer = setTimeout(() => cancelRequest(data.id), Math.max(0, data.deadline - Date.now()));
+    const work = recovery.recover('Retrying playback'); retry.generation = recovery.generation;
+    void work.then(() => send({ type: 'reply', id: data.id, ...(retry.canceled ? { error: 'Playback operation timed out' } : recovery.state === 'failed' ? { error: snapshot.error } : { data: currentSnapshot() }) })).finally(() => { clearTimeout(retry.timer); requests.delete(data.id); });
     return;
   }
+  if (data.command.type === 'filters') filters = data.command.filters;
   if (data.command.type === 'volume') volume = data.command.volume;
   if (recovery.busy && data.command.type !== 'close' && data.command.type !== 'trace') {
     if (data.command.type === 'apply-alignment') {
@@ -228,19 +275,28 @@ parent.on('message', ({ data }: { data: WorkerRequest }) => {
     send({ type: 'reply', id: data.id, error: 'Playback was interrupted. Wait for recovery, then try again.' }); return;
   }
   const generation = recovery.generation;
-  commandQueue = commandQueue.then(() => {
-    const allowedAfterFailure = data.command.type === 'load' || data.command.type === 'apply-alignment' || (data.command.type === 'preview' && data.command.paused);
+  const request = { canceled: false, active: false, generation, timer: undefined as ReturnType<typeof setTimeout> | undefined };
+  requests.set(data.id, request);
+  if (data.deadline !== undefined) request.timer = setTimeout(() => cancelRequest(data.id), Math.max(0, data.deadline - Date.now()));
+  commandQueue = commandQueue.then(async () => {
+    if (data.deadline !== undefined && data.deadline <= Date.now()) cancelRequest(data.id);
+    if (request.canceled) throw new Error('Playback operation timed out');
+    request.active = true;
+    const allowedAfterFailure = data.command.type === 'load' || data.command.type === 'filters' || data.command.type === 'apply-alignment' || (data.command.type === 'preview' && data.command.paused);
     if (data.command.type !== 'close' && data.command.type !== 'trace') recovery.assertActive(generation, allowedAfterFailure);
-    return handle(data);
+    const result = await handle(data);
+    if (request.canceled) throw new Error('Playback operation timed out');
+    return result;
   }).then(result => send({ type: 'reply', id: data.id, data: result ?? currentSnapshot() })).catch(error => {
-    snapshot.error = error instanceof Error ? error.message : String(error);
-    send({ type: 'reply', id: data.id, error: snapshot.error });
-  });
+    const message = request.canceled ? 'Playback operation timed out' : error instanceof Error ? error.message : String(error);
+    if (!request.canceled) snapshot.error = message;
+    send({ type: 'reply', id: data.id, error: message });
+  }).finally(() => { clearTimeout(request.timer); requests.delete(data.id); });
 });
 
-async function handle(request: Exclude<WorkerRequest, { type: 'heartbeat' | 'power' }>): Promise<unknown> {
+async function handle(request: Extract<WorkerRequest, { command: unknown }>): Promise<unknown> {
   const command = request.command;
-  if (command.type === 'trace') return trace.snapshot({ controllerConfig: initialControllerConfig, controller: snapshot.sync,
+  if (command.type === 'trace') return trace.snapshot({ controllerConfig, controller: snapshot.sync,
     binding: tracedBinding, offsetSeconds: snapshot.offsetSeconds, replay: snapshot.replay, output: engine.outputState(),
     media: snapshot.media ? { selectedTrackId: snapshot.media.selectedTrackId, originSeconds: snapshot.media.originSeconds,
       durationSeconds: snapshot.media.durationSeconds, timelineVersion: snapshot.media.timelineVersion } : undefined,
@@ -254,6 +310,13 @@ async function handle(request: Exclude<WorkerRequest, { type: 'heartbeat' | 'pow
     return;
   }
   if (loading) throw new Error('Wait for the recording to finish opening');
+  if (command.type === 'filters') {
+    // Opening a replacement applies preferences before loading. This must also
+    // work after failed recovery, without clearing the playback error.
+    filters = command.filters;
+    await engine.filters(filters);
+    return;
+  }
   snapshot.error = undefined;
   if (command.type === 'apply-alignment') {
     needsOutputBinding = false;
