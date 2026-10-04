@@ -202,6 +202,20 @@ is not a product target.
 Set `COMMS_TEST_FFMPEG` and `COMMS_TEST_FFPROBE` as well to include generated media
 timeline fixtures in `test:engine`. Windows defaults to the prepared bundled tools.
 
+## Verification in a Debian development environment
+
+Run the actual app with a controllable HTTPS replay simulator and captured virtual
+audio output, including UI actions, pause/seek/speed changes and source-sample checks:
+
+```sh
+sh scripts/linux.sh --prepare
+sh scripts/linux.sh npm run verify:linux
+sh scripts/linux.sh npm run dev:verify
+```
+
+See [development verification](tests/acceptance/DEV_ENVIRONMENT.md) for real recording
+input, interactive agent controls, retained evidence, rootless setup and limits.
+
 ## Review workflow
 
 The window shows one current task and its primary action. Settings and diagnostics

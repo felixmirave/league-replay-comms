@@ -77,7 +77,11 @@ function fail(error: unknown): void {
   record('failure', message);
   dispatch({ type: 'failure', message });
 }
-const replay = new ReplayConnection(new LocalReplayTransport(readFileSync(join(resources, 'certificates/riotgames.pem'), 'utf8')), sample => {
+const developmentReplay = process.argv[4] === '--development-replay';
+const replayPort = developmentReplay ? Number(process.argv[5]) : 2999;
+const replayCertificate = developmentReplay ? process.argv[6] : join(resources, 'certificates/riotgames.pem');
+if (!replayCertificate) throw new Error('Replay API certificate path is required');
+const replay = new ReplayConnection(new LocalReplayTransport(readFileSync(replayCertificate, 'utf8'), replayPort), sample => {
   snapshot.replay = sample;
   snapshot.connectionError = undefined;
   if (boundSession && boundSession !== sample.sessionId) { snapshot.offsetSeconds = undefined; boundSession = undefined; }

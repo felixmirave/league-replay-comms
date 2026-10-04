@@ -32,8 +32,9 @@ after(async () => {
   assert.deepEqual(errors, []);
 });
 beforeEach(async () => {
-  await page.reload();
-  await page.setContent('<div id="root"></div>');
+  // Navigate to a real document: document.open() in setContent can lose native
+  // range-input pointer capture in Electron even though mouse events arrive.
+  await page.goto('data:text/html,<div id="root"></div>');
   await page.evaluate(() => {
     window.volumeTest = {
       state: { workflow: { state: 'listening', primary: 'Stop listening', revision: 0, editorKey: 1, canReturn: false }, sync: { state: 'following', reason: 'Fixture', generation: 1 }, paused: false, busy: false,

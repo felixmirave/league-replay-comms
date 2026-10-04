@@ -1,3 +1,41 @@
+## TypeScript development tooling recorded on 2026-10-04
+
+Linux preparation and command launching now use TypeScript, with a small POSIX
+shell bootstrap for machines without Node. Python is not required. A clean runtime
+preparation, real HTTPS archive download with pinned checksum, and Node bootstrap
+from a verified archive passed. The full Linux workflow passed again: eight
+verification-tool tests, 230 Vitest tests, existing desktop checks, and all
+20 connected UI/audio scenarios including the supplied recording. Thirteen
+Windows helper integration tests remain explicitly excluded. The retained local
+report is `release/validation/linux-2026-10-04T01-18-20-252Z/validation.json`;
+`prepare-linux.log` in that directory records clean preparation.
+
+## Debian app verification recorded on 2026-10-03
+
+The [development verification workflow](DEV_ENVIRONMENT.md) now runs the production
+Electron application with an independent HTTPS replay simulator and captures actual
+mpv output from a private PulseAudio virtual device. No corresponding League replay
+is required. The local run for version 0.2.1 passed type checking, the production
+build, all existing Linux desktop workflows, four verification-tool tests, and
+230 Vitest tests. Thirteen Windows PowerShell/handle integration tests were excluded
+explicitly. All 20 connected scenarios passed, covering UI operations, track/offset
+selection, pause/resume, jumps, speed changes, volume, boundaries, API failures,
+replay replacement, persistence, and a supplied recording.
+
+For that recording, captured audio track 3 at a simulated timestamp near 90 seconds
+matched independently decoded source samples with 0.996 correlation. The measured
+position difference was 6 ms; capture calibration uncertainty was 39 ms. This is
+software loopback evidence, not a physical timing result. The run used Debian mpv
+0.40.0 and FFmpeg 7.1.5, and explicitly disabled Chromium's OS process sandbox in
+this container. Native Windows build parity remains unverified.
+
+The retained local report is
+`release/validation/linux-2026-10-03T20-19-13-873Z/validation.json`, with screenshots,
+Playwright traces, application logs, timeline, calibration, and captured PCM.
+Five existing validation-tooling tests also passed. The packaging-tooling suite
+passed ten checks but could not run its two Windows native-payload checks because
+`resources/bin/win32-x64` has not been prepared in this worktree.
+
 # Implementation and validation status
 
 Updated: 2026-10-01. Version 0.2.0 implements the guided review workflow and

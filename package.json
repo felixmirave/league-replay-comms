@@ -37,7 +37,11 @@
     "test:volume-ui": "node --test scripts/test-volume-ui.ts",
     "test:startup-ui": "npm run build && node --test scripts/test-startup-ui.ts",
     "check": "npm run typecheck && npm test && npm run build",
-    "package:win": "npm run check && npm run verify:resources && node scripts/package-win.ts"
+    "package:win": "npm run check && npm run verify:resources && node scripts/package-win.ts",
+    "prepare:linux": "sh scripts/linux.sh --prepare",
+    "verify:linux": "node scripts/verify-linux.ts",
+    "dev:verify": "node scripts/dev-verify.ts",
+    "test:dev-verification": "node --test scripts/replay-simulator.test.ts scripts/audio-verification.test.ts scripts/linux-runtime.test.ts"
   },
   "dependencies": {
     "react": "19.3.0",
@@ -62,7 +66,10 @@
   "build": {
     "compression": "normal",
     "afterPack": "./scripts/after-pack.ts",
-    "electronLanguages": ["en-US", "en-GB"],
+    "electronLanguages": [
+      "en-US",
+      "en-GB"
+    ],
     "appId": "local.leaguereplaycomms.desktop",
     "productName": "League Replay Comms",
     "directories": {
