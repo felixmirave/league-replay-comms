@@ -40,8 +40,8 @@ the unfinished import at its unchanged original path, including its track and
 manual edits. A changed or missing file requires explicit reopening.
 
 System interruption recovery stops the old player and reloads the unchanged
-recording paused with its selected track, volume, and sound filters. Saved alignment is retained;
-select **Start listening** again before following. **Retry playback** also restarts the
+recording with its selected track, volume, mute state, and sound filters. Saved alignment is retained;
+following resumes automatically after a fresh replay clock and verified seek. **Retry playback** also restarts the
 player. Output changes also stop and replace the player, preserving the recording,
 track, volume, and saved offset. Preview returns paused; following must obtain a
 fresh replay clock and verified seek. Repeated output failures stop automatic
@@ -273,16 +273,17 @@ are secondary; there is no replay-file picker or replay confirmation step.
 3. For video, the app reads the game clock in the top-right corner. If detection
    fails, it opens **Adjust timing** for manual alignment.
    A readable tick automatically sets the timing. Recordings can start late or
-   end early. **Adjust timing** offers manual corrections; playback starts only
-   when you select **Start listening**.
+   end early. **Adjust timing** offers manual corrections; playback starts automatically
+   when the recording, selected track, timing, and replay connection are ready.
 4. For manual alignment, type **Recording offset (seconds)** or use **Back 0.1 s**
    and **Forward 0.1 s**. A positive offset starts further into the recording; a
    negative offset starts earlier. Arrow keys also adjust the value. Hold Shift
    for 1-second steps or Alt for 0.01-second steps. Changes apply and save immediately.
-5. Select **Start listening** in the editor, then control playback in League while
-   adjusting the offset by ear. **Done** closes the editor and keeps listening.
+5. Control playback in League while adjusting the offset by ear. **Done** closes the editor and keeps listening.
    **Adjust timing** reopens it without interrupting an active listening session.
-   A changed replay connection requires another explicit start; the offset survives.
+   Brief connection failures recover automatically. A changed League process requires
+   choosing a recording for the new replay; saved timing remains available.
+   **Mute comms** silences output while preserving the chosen volume and synchronization.
 
 **Prepare a recording without League** allows offline offset entry.
 **Settings** contains connection details, config backups and guarded restoration,

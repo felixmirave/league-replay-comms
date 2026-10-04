@@ -12,14 +12,13 @@ export const userCommandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('open-path'), path: z.string().min(1).max(32768) }),
   z.object({ type: z.literal('select-recording'), id: z.string().min(1).max(256) }),
   z.object({ type: z.literal('workflow'), action: z.enum(['prepare', 'review', 'edit', 'finish-edit', 'change-recording', 'change-track']) }),
-  z.object({ type: z.literal('stop') }),
   z.object({ type: z.literal('locate-media') }),
   z.object({ type: z.literal('add-media-folder') }),
   z.object({ type: z.literal('retry-save') }),
   z.object({ type: z.literal('preview'), paused: z.boolean() }),
   z.object({ type: z.literal('align'), offsetSeconds: z.number().finite().min(-86_400).max(86_400) }),
-  z.object({ type: z.literal('follow') }),
   z.object({ type: z.literal('filters'), filters: filterSettingsSchema }),
+  z.object({ type: z.literal('mute'), muted: z.boolean() }),
   z.object({ type: z.literal('volume'), volume: z.number().finite().min(0).max(100) }),
   z.object({ type: z.literal('preview-track'), trackId: z.number().int().positive() }),
   z.object({ type: z.literal('track'), trackId: z.number().int().positive() }),
@@ -55,6 +54,8 @@ export interface LibraryView {
   unsavedPreferences?: number;
   folders: string[];
   volume: number;
+  muted?: boolean;
+  needsRecordingChoice?: boolean;
   filters?: FilterSettings;
   filterError?: string;
   warnings: string[];
@@ -88,7 +89,7 @@ export interface DesktopInterface {
 export const initialSnapshot: ProbeSnapshot = { sync: { state: 'preview', reason: 'Open a recording to begin', generation: 0 }, paused: true, busy: false };
 
 export type PlaybackCommand =
-  | Extract<UserCommand, { type: 'preview' | 'follow' | 'volume' | 'filters' | 'track' | 'retry' }>
+  | Extract<UserCommand, { type: 'preview' | 'volume' | 'filters' | 'track' | 'retry' }>
   | { type: 'apply-alignment'; offsetSeconds?: number; replaySessionId?: string }
   | { type: 'load'; path: string; probe?: MediaProbe }
   | { type: 'update-probe'; probe: MediaProbe }

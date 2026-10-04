@@ -9,13 +9,14 @@ const primary: Partial<Record<WorkflowState, string>> = {
   'setup.permission': 'Allow Windows permission', 'setup.repair': 'Check configuration again',
   'recording.choose': 'Choose recording', 'recording.locate': 'Locate recording', 'recording.track': 'Use this track',
   'recording.timing-error': 'Choose another track', 'alignment.manual': 'Done',
-  ready: 'Start listening', 'ready.offline': 'Connect to League', listening: 'Stop listening', 'audio.error': 'Retry audio',
+  'ready.offline': 'Connect to League', 'audio.error': 'Retry audio',
 };
 function route(context: Context, facts: ProbeSnapshot): WorkflowState {
   if (facts.startup === 'loading') return 'starting';
   if (facts.startup === 'failed') return 'application.error';
   const library = facts.library, setup = facts.setup, connected = !!facts.replay && !facts.connectionError;
   if (!library) return facts.error ? 'application.error' : 'checking';
+  if (library.needsRecordingChoice) return connected ? 'recording.choose' : 'replay.wait';
   if (context.mode === 'edit' && library.recordingReady) return 'alignment.manual';
   if (context.mode === 'choose') return library.locating || facts.busy ? 'recording.opening' : 'recording.choose';
   if (!context.prepare && !connected) {
@@ -32,7 +33,8 @@ function route(context: Context, facts: ProbeSnapshot): WorkflowState {
     }
     return 'replay.wait';
   }
-  if (library.locating || facts.busy) return 'recording.opening';
+  if (library.locating) return 'recording.opening';
+  if (facts.busy) return library.recordingReady && library.boundToRuntime ? 'listening' : 'recording.opening';
   if (library.missingRecording) return 'recording.locate';
   if (!library.recordingReady || !facts.media) return 'recording.choose';
   if (!library.trackChosen || context.mode === 'track') return 'recording.track';
@@ -48,7 +50,7 @@ function route(context: Context, facts: ProbeSnapshot): WorkflowState {
   const range = facts.media.tracks.find(track => track.id === facts.media!.selectedTrackId)?.range;
   if (!range) return library.timingAnalysis === 'running' ? 'recording.timing' : 'recording.timing-error';
   if (!connected) return 'ready.offline';
-  return library.boundToRuntime && facts.sync.state !== 'preview' ? 'listening' : 'ready';
+  return 'listening';
 }
 
 /** One task from authoritative facts; deliberate editing is pinned through background updates. */
@@ -68,7 +70,7 @@ export class GuidedWorkflow {
     }
     context.state = next; this.context = context;
     return { state: next, revision: context.revision, editorKey: context.editorKey,
-      canReturn: context.mode === 'choose' && !!facts.library?.recordingReady,
+      canReturn: context.mode === 'choose' && !!facts.library?.recordingReady && !facts.library.needsRecordingChoice,
       primary: next === 'recording.timing-error' && (facts.media?.tracks.length ?? 0) < 2 ? 'Choose another recording' : primary[next] };
   }
   send(intent: WorkflowIntent, facts: ProbeSnapshot): void {

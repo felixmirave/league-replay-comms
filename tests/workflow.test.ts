@@ -35,21 +35,23 @@ describe('guided review state machine', () => {
     state.replay = facts().replay;
     expect(flow.observe(state)).toMatchObject({ state: 'recording.choose', primary: 'Choose recording' });
     recording(state); expect(flow.observe(state).state).toBe('alignment.manual');
-    align(state); flow.complete(); expect(flow.observe(state)).toMatchObject({ state: 'ready', primary: 'Start listening' });
+    align(state); flow.complete(); expect(flow.observe(state)).toMatchObject({ state: 'listening', primary: undefined });
     state.library!.boundToRuntime = true; state.sync.state = 'paused';
     expect(flow.observe(state).state).toBe('listening');
     state.connectionError = 'Disconnected'; state.library!.boundToRuntime = false;
     expect(flow.observe(state).state).toBe('replay.wait');
     state.connectionError = undefined;
-    expect(flow.observe(state).state).toBe('ready');
+    expect(flow.observe(state).state).toBe('listening');
   });
-  it('keeps listening visible for preference edits and distinguishes opening a file', () => {
+  it('keeps listening visible during preference edits and audio recovery', () => {
     const flow = new GuidedWorkflow(), state = facts(); recording(state); align(state);
     state.library!.boundToRuntime = true; state.sync.state = 'following';
     expect(flow.observe(state).state).toBe('listening');
     state.library!.filters = { radio: { enabled: true, strength: 110 }, noise: { enabled: true, attenuation: 30 }, position: { enabled: false, pan: -60 } };
     expect(flow.observe(state).state).toBe('listening');
     state.busy = true;
+    expect(flow.observe(state).state).toBe('listening');
+    state.library!.recordingReady = false;
     expect(flow.observe(state).state).toBe('recording.opening');
   });
   it('skips setup when League is already reachable, without requesting any replay identity', () => {
@@ -57,14 +59,14 @@ describe('guided review state machine', () => {
     state.setup!.searching = true;
     expect(flow.observe(state).state).toBe('recording.choose');
     recording(state); align(state);
-    expect(flow.observe(state).state).toBe('ready');
+    expect(flow.observe(state).state).toBe('listening');
   });
   it('does not open a blank editor before saved timing can be restored', () => {
     const flow = new GuidedWorkflow(), state = facts(); recording(state);
     state.library!.recording!.hash = undefined;
     expect(flow.observe(state).state).toBe('recording.identifying');
     state.library!.recording!.hash = 'a'.repeat(64); align(state);
-    expect(flow.observe(state).state).toBe('ready');
+    expect(flow.observe(state).state).toBe('listening');
   });
   it('pins explicit manual work through hashing, OCR results, disconnect and reconnect', () => {
     const flow = new GuidedWorkflow(), state = facts(); recording(state);
@@ -78,7 +80,7 @@ describe('guided review state machine', () => {
     state.connectionError = undefined;
     expect(flow.observe(state).editorKey).toBe(editor.editorKey);
     state.library!.clock = undefined; flow.complete();
-    expect(flow.observe(state).state).toBe('ready');
+    expect(flow.observe(state).state).toBe('listening');
   });
   it.each([true, false])('falls directly back to stable manual timing when clock detection fails (connected: %s)', connected => {
     const flow = new GuidedWorkflow(), state = facts(connected); recording(state);
@@ -92,22 +94,22 @@ describe('guided review state machine', () => {
     expect(flow.observe(state)).toMatchObject({ state: 'alignment.manual', editorKey: editor.editorKey });
     state.connectionError = undefined;
     align(state); flow.complete();
-    expect(flow.observe(state).state).toBe(connected ? 'ready' : 'ready.offline');
+    expect(flow.observe(state).state).toBe(connected ? 'listening' : 'ready.offline');
   });
-  it('can retry automatic detection from manual timing and requires Start after success', () => {
+  it('can retry automatic detection from manual timing and follows automatically after success', () => {
     const flow = new GuidedWorkflow(), state = facts(); recording(state); align(state);
     flow.send('edit', state); flow.observe(state);
     flow.complete(); state.library!.clock = { status: 'running', framesRead: 0, message: 'Reading' };
     expect(flow.observe(state)).toMatchObject({ state: 'alignment.analyzing', primary: undefined });
     state.library!.clock = { status: 'accepted', offsetSeconds: 18, framesRead: 12, message: 'Aligned' };
-    expect(flow.observe(state)).toMatchObject({ state: 'ready', primary: 'Start listening' });
+    expect(flow.observe(state)).toMatchObject({ state: 'listening', primary: undefined });
   });
-  it('allows offline preparation, then requires connection and explicit Start', () => {
+  it('allows offline preparation, then follows automatically when connected', () => {
     const flow = new GuidedWorkflow(), state = facts(false);
     flow.send('prepare', state); expect(flow.observe(state).state).toBe('recording.choose');
     recording(state); align(state); expect(flow.observe(state).state).toBe('ready.offline');
     flow.send('review', state); expect(flow.observe(state).state).toBe('setup.folder');
-    state.replay = facts().replay; expect(flow.observe(state).state).toBe('ready');
+    state.replay = facts().replay; expect(flow.observe(state).state).toBe('listening');
   });
   it.each([true, false])('finishes live edits while preserving listening or offline preparation (connected: %s)', connected => {
     const flow = new GuidedWorkflow(), state = facts(connected); recording(state); align(state);
@@ -141,8 +143,19 @@ describe('guided review state machine', () => {
     const flow = new GuidedWorkflow(), state = facts(); recording(state); align(state); flow.observe(state);
     flow.send('change-recording', state);
     expect(flow.observe(state)).toMatchObject({ state: 'recording.choose', canReturn: true });
-    flow.send('review', state); expect(flow.observe(state).state).toBe('ready');
+    flow.send('review', state); expect(flow.observe(state).state).toBe('listening');
     state.library!.recordingReady = false; state.library!.missingRecording = true;
     expect(flow.observe(state).state).toBe('recording.locate');
   });
+  it('requires a new recording for a changed viewer and prevents returning to the old one', () => {
+    const flow = new GuidedWorkflow(), state = facts(); recording(state); align(state);
+    flow.observe(state); flow.send('edit', state);
+    state.library!.needsRecordingChoice = true;
+    expect(flow.observe(state)).toMatchObject({ state: 'recording.choose', canReturn: false });
+    flow.send('review', state);
+    expect(flow.observe(state).state).toBe('recording.choose');
+    flow.send('change-recording', state);
+    expect(flow.observe(state).canReturn).toBe(false);
+  });
+
 });

@@ -55,7 +55,7 @@ export function TimingEditor({ snapshot, busy, send }: Props) {
   const action = async (command: UserCommand) => {
     setActing(true); setError('');
     try {
-      if (command.type !== 'stop' && command.type !== 'analyze-clock') {
+      if (command.type !== 'analyze-clock') {
         const number = offset(draft.current);
         if (number === undefined) throw new Error('Enter a number of seconds between −86400 and 86400.');
         if (applied.current !== number) await apply(number);
@@ -66,7 +66,7 @@ export function TimingEditor({ snapshot, busy, send }: Props) {
     finally { setActing(false); }
   };
   const status = !connected ? 'Open a replay in League to hear your adjustments.'
-    : !listening ? 'Start listening to hear your adjustments.'
+    : !listening ? 'Comms will play automatically when timing is set.'
     : snapshot.sync.state === 'outside-recording' ? 'Outside the recording. Change the offset or move the replay to a recorded moment.'
     : snapshot.sync.state === 'unsupported-speed' ? 'Choose a supported replay speed in League.'
     : snapshot.replay?.paused ? 'Replay paused. Press play in League to hear your adjustments.'
@@ -89,6 +89,6 @@ export function TimingEditor({ snapshot, busy, send }: Props) {
     <p className="muted">Use ↑ / ↓ or the buttons. Hold Shift for 1 s, Alt for 0.01 s. Changes save automatically.</p>
     <p className="timing-status" role="status">{status}</p>
     {error && <p role="alert" className="error">{error}</p>}
-    <div className="actions"><button disabled={disabled || (!listening && (!connected || !valid))} onClick={() => void action({ type: listening ? 'stop' : 'follow' })}>{listening ? 'Stop listening' : 'Start listening'}</button><button className="primary" disabled={disabled || !valid} onClick={() => void action({ type: 'workflow', action: 'finish-edit' })}>Done</button></div>
+    <div className="actions"><button className="primary" disabled={disabled || !valid} onClick={() => void action({ type: 'workflow', action: 'finish-edit' })}>Done</button></div>
   </div>;
 }

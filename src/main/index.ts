@@ -61,7 +61,7 @@ const pending = new Map<number, { resolve(value: unknown): void; reject(error: E
 
 function request(command: Extract<WorkerRequest, { command: unknown }>['command']): Promise<unknown> {
   // Previously accepted commands still drain, but closing must not restart audio.
-  if (preparingExit && (command.type === 'follow' || (command.type === 'preview' && !command.paused))) command = { type: 'preview', paused: true };
+  if (preparingExit && ((command.type === 'apply-alignment' && command.replaySessionId !== undefined) || (command.type === 'preview' && !command.paused))) command = { type: 'preview', paused: true };
   if (!worker) return Promise.reject(new Error('Playback process is unavailable. Restart the application.'));
   const id = ++sequence;
   return new Promise((resolve, reject) => {
@@ -182,10 +182,10 @@ const startupTask = app.whenReady().then(async () => {
     if (command.type === 'workflow') {
       workflow.send(command.action, publishedSnapshot());
       if (command.action === 'edit') await review.enterTiming();
-      else if (command.action !== 'prepare' && command.action !== 'finish-edit' && snapshot.media) await review.stop();
+      else if (command.action === 'finish-edit' || command.action === 'review') await review.resume();
+      else if (command.action !== 'prepare' && snapshot.media) await review.stop();
       publish();
-    } else if (command.type === 'stop') { await review.stop(); publish(); }
-    else if (command.type === 'setup-refresh') await setup?.refresh();
+    } else if (command.type === 'setup-refresh') await setup?.refresh();
     else if (command.type === 'setup-enable') await setup?.enable(command.path);
     else if (command.type === 'setup-restore') await setup?.restore(command.path, command.backupId);
     else if (command.type === 'setup-elevate') await setup?.approveElevation();
@@ -213,10 +213,7 @@ const startupTask = app.whenReady().then(async () => {
     else if (command.type === 'preview-track') { await review.selectTrack(command.trackId, false); await request({ type: 'preview', paused: false }); }
     else if (command.type === 'filters') await review.setFilters(command.filters);
     else if (command.type === 'volume') await review.setVolume(command.volume);
-    else if (command.type === 'follow') {
-      if (!['ready', 'alignment.manual'].includes(publishedSnapshot().workflow!.state)) throw new Error('Finish the current step before listening.');
-      await review.follow(); publish();
-    }
+    else if (command.type === 'mute') await review.setMuted(command.muted);
     else if (command.type === 'retry-save') await review.retrySave();
     else if (command.type === 'analyze-clock') {
       await review.stop();

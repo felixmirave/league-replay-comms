@@ -49,7 +49,7 @@ does not establish successful Windows startup or audio output.
 3. Open a replay in League and wait for automatic connection. Choose the original recording,
    including a filename with spaces or non-ASCII text.
    Preview each relevant audio track and select the comms track.
-4. Open **Adjust timing** and select **Start listening**. Type an offset or use
+4. Open **Adjust timing**. Playback starts automatically when timing is valid. Type an offset or use
    **Back 0.1 s** / **Forward 0.1 s** while watching League. Verify that Back moves
    the recording backward and Forward moves it forward. Check Shift (1 s), Alt
    (0.01 s), and arrow-key steps. **Done** and reopening the editor must keep listening.
@@ -67,10 +67,10 @@ does not establish successful Windows startup or audio output.
 | Rapidly scrub between distant points | Intermediate targets do not resume obsolete audio |
 | Seek outside recorded coverage | Silence and an outside-recording status |
 | Minimize the companion and foreground League | Following continues |
-| Stop/restart the replay | Audio stops; the ready task requires another Start listening in the new viewer session |
-| Sleep/hibernate, then resume | The old player stops; unchanged recording/track/volume return paused with saved alignment retained; use Start listening after a fresh connection |
+| Stop/restart the replay | Audio stops; a changed process ID requires choosing a recording for the new viewer |
+| Sleep/hibernate, then resume | The old player stops; unchanged recording/track/volume/mute and alignment survive; the same verified viewer resumes automatically |
 | Resume while opening/seeking, or repeat transitions | Obsolete commands/completions cannot restart output; recovery is bounded and can be retried |
-| Select Retry audio after media-process failure | The player restarts paused; restore the selected track and volume, then use Start listening after a fresh connection |
+| Select Retry audio after media-process failure | The player restarts; restore track, volume, mute, and timing, then resume automatically after a fresh verified connection |
 | Change the default output while both devices remain connected | The old player stops; selected track/volume/offset survive; preview stays paused, and following requires a fresh clock and verified seek |
 | Unplug/reconnect USB or Bluetooth output, or change its format | Missing output stays silent; successful replacement restores the selected stream, while failed restoration offers Retry audio |
 | Trigger repeated output failures | Automatic replacements are bounded; no recurring playback/restart loop; deliberate retry remains available |
@@ -94,9 +94,8 @@ does not establish successful Windows startup or audio output.
    tracks, leading video without comms, and an audio track shorter than the video.
    Check reported audio bounds and silence outside them. Unknown timing must show
    analysis progress or an actionable error; it must not fabricate a zero timestamp.
-6. With League disconnected, enter a signed offset. Verify that Start listening is
-   disabled, Done saves and returns to offline review, and reopening restores it.
-   Connect and use Start listening; connection alone must not start audio.
+6. With League disconnected, enter a signed offset. Verify that Done saves and returns to offline review, and reopening restores it.
+   Connect to League; playback must begin automatically after verifying the viewer PID.
 7. Type a partial negative value and change it while replay clocks update. Rapidly
    click Back/Forward, then leave or close the app. The newest valid edit must
    persist. Slow saves must not reset input, move the controls, or flash warnings.

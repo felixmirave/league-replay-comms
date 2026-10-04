@@ -323,7 +323,7 @@ export class BrowserWindow {
   await ui.setContent('<div id="root"></div>');
   await ui.evaluate(() => {
     const filters = { radio: { enabled: true, strength: 100 }, noise: { enabled: true, attenuation: 25 }, position: { enabled: false, pan: -60 } };
-    globalThis.testState = { workflow: { state: 'listening', primary: 'Stop listening', revision: 0, editorKey: 1, canReturn: false }, sync: { state: 'following', reason: 'Fixture', generation: 1 }, paused: false, busy: false,
+    globalThis.testState = { workflow: { state: 'listening',  revision: 0, editorKey: 1, canReturn: false }, sync: { state: 'following', reason: 'Fixture', generation: 1 }, paused: false, busy: false,
       replay: { sessionId: 'fixture', seeking: false, lengthSeconds: 3000, sentAtSeconds: 0, receivedAtSeconds: 0, timeSeconds: 125, speed: 1, paused: false }, library: { recordings: [], mediaGeneration: 1, recordingReady: true, trackChosen: true, volume: 100, filters, folders: [], warnings: [], missingRecording: false } };
     globalThis.filterCalls = [];
     window.review = { openDropped: async () => {}, snapshot: async () => structuredClone(globalThis.testState), subscribe: callback => { globalThis.filterListener = callback; return () => {}; },

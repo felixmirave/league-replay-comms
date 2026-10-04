@@ -90,3 +90,7 @@ dl { display: grid; grid-template-columns: 130px 1fr; gap: 10px; font-size: 13px
 .sound-filter > input { display: block; width: calc(100% - 24px); margin: 0 0 0 24px; }
 .sound-filter > input:disabled { opacity: .4; }
 .filter-endpoints { display: flex; justify-content: space-between; margin: 3px 0 0 24px; color: #526176; font-size: 11px; }
+
+.volume-controls { display: flex; align-items: center; gap: 12px; }
+.volume-controls .volume { flex: 1; }
+.volume-controls button { white-space: nowrap; }

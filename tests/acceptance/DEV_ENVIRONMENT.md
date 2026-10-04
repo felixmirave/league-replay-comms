@@ -71,7 +71,7 @@ Synthetic coded recordings cover the other speeds and boundary cases.
 The command checks prerequisites, runs type checking, verification-tool regression
 tests, the full Vitest suite with real media tools, the production build, and the
 existing Electron startup, timing, volume, review and driver workflows. It then
-runs connected UI/audio scenarios: track selection, saved offset, explicit Start,
+runs connected UI/audio scenarios: track selection, saved offset, automatic playback, mute/unmute,
 pause/resume, forward/backward seek, 2x and 0.5x playback, volume, recording bounds,
 negative offset, Replay API failures/recovery, replay replacement, and restart. Review recovery checks interrupt the Web Audio context and verify restoration of the audible volume, selected track, and alignment.
 

@@ -67,7 +67,7 @@ test('live steps combine legacy timing and stay responsive through older saves a
   await button('Forward 0.1 s').click();
   await button('Forward 0.1 s').click();
   assert.equal(await input().inputValue(), '2.71');
-  assert.equal(await button('Stop listening').isEnabled(), true);
+  assert.equal(await button('Start listening').count(), 0);
   for (let n = 0; n < 5; n++) {
     await page.evaluate(() => window.timingTest.publish()); await paint();
     assert.equal(await input().inputValue(), '2.71');
@@ -96,28 +96,22 @@ test('partial signed input survives ticks, invalid values never reach playback, 
   assert.deepEqual(await calls(), [-12.5, -12.4, -12.41, -11.41].map(offsetSeconds => ({ type: 'align', offsetSeconds })));
   await input().fill('-');
   for (let i = 0; i < 4; i++) { await reply(i); assert.equal(await input().inputValue(), '-'); }
-  assert.equal(await button('Stop listening').isEnabled(), true, 'Incomplete input must not block stopping audio');
+  assert.equal(await button('Done').isDisabled(), true);
 });
 
-test('new alignment stays silent until Start, accepts zero, and Done waits for the accepted edit', async () => {
+test('Done accepts an initial zero offset and waits for its acknowledgement without a Start action', async () => {
   await page.evaluate(() => {
     const t = window.timingTest; t.state.workflow.editorKey++;
     t.state.library.alignment = undefined; t.state.library.boundToRuntime = false;
     t.state.sync.state = 'preview'; t.publish();
   }); await paint();
   assert.equal(await input().inputValue(), '0');
-  assert.deepEqual(await calls(), []);
-  await button('Start listening').click();
+  assert.equal(await button('Start listening').count(), 0);
+  await button('Done').click();
   assert.deepEqual(await calls(), [{ type: 'align', offsetSeconds: 0 }]);
   await reply(0);
-  assert.deepEqual((await calls()).at(-1), { type: 'follow' });
-  await reply(1);
-  await input().fill('5');
-  await button('Done').click();
-  assert.equal((await calls()).length, 3);
-  await reply(2);
   assert.deepEqual((await calls()).at(-1), { type: 'workflow', action: 'finish-edit' });
-  await reply(3);
+  await reply(1);
 });
 
 test('a failed save retains the intended offset and Done retries it; older failures cannot replace newer edits', async () => {
@@ -134,16 +128,16 @@ test('a failed save retains the intended offset and Done retries it; older failu
   await reply(3);
 });
 
-test('disconnect keeps the editor and offset without automatically restarting audio on reconnect', async () => {
+test('disconnect keeps the editor and offset without exposing a separate Start action', async () => {
   await input().fill('8'); await reply(0);
   await page.evaluate(() => { const t = window.timingTest; t.state.connectionError = 'Disconnected'; t.state.library.boundToRuntime = false; t.publish(); });
   await paint();
-  assert.equal(await button('Start listening').isDisabled(), true);
+  assert.equal(await button('Start listening').count(), 0);
   await button('Back 0.1 s').click(); await reply(1);
   await page.evaluate(() => { window.timingTest.state.connectionError = undefined; window.timingTest.publish(); }); await paint();
   assert.equal(await input().inputValue(), '7.9');
-  assert.equal(await button('Start listening').isEnabled(), true);
-  assert.equal((await calls()).some(command => command.type === 'follow'), false);
+  assert.equal(await button('Start listening').count(), 0);
+  assert.deepEqual(await calls(), [{ type: 'align', offsetSeconds: 8 }, { type: 'align', offsetSeconds: 7.9 }]);
 });
 
 test('clock detection is video-only, respects busy state, and never saves an unaccepted default offset', async () => {

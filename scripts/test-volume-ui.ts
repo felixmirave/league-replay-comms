@@ -37,7 +37,7 @@ beforeEach(async () => {
   await page.goto('data:text/html,<div id="root"></div>');
   await page.evaluate(() => {
     window.volumeTest = {
-      state: { workflow: { state: 'listening', primary: 'Stop listening', revision: 0, editorKey: 1, canReturn: false }, sync: { state: 'following', reason: 'Fixture', generation: 1 }, paused: false, busy: false,
+      state: { workflow: { state: 'listening',  revision: 0, editorKey: 1, canReturn: false }, sync: { state: 'following', reason: 'Fixture', generation: 1 }, paused: false, busy: false,
         replay: { sessionId: 'fixture', seeking: false, lengthSeconds: 3000, sentAtSeconds: 0, receivedAtSeconds: 0, timeSeconds: 125.123, speed: 1, paused: false }, library: { recordings: [], mediaGeneration: 1, recordingReady: true, trackChosen: true, volume: 100, folders: [], warnings: [], missingRecording: false } },
       calls: [], listener: () => {},
       publish(volume) {
@@ -61,7 +61,7 @@ beforeEach(async () => {
 
 const slider = () => page.getByRole('slider', { name: 'Comms volume' }).first();
 const settingsSlider = () => page.getByRole('dialog').getByRole('slider', { name: 'Comms volume' });
-const stop = () => page.getByRole('button', { name: 'Stop listening', exact: true });
+const mute = () => page.getByRole('button', { name: 'Mute comms', exact: true });
 const paint = () => page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 async function tick(volume?: number) { await page.evaluate(value => window.volumeTest.publish(value), volume); await paint(); }
 async function reply(index: number, volume?: number, error?: string) {
@@ -93,17 +93,17 @@ test('keyboard volume stays at the latest input across clock ticks and older rep
 test('volume changes never flash unrelated buttons into their disabled state', async () => {
   await slider().focus();
   await page.keyboard.press('ArrowLeft');
-  assert.equal(await stop().isEnabled(), true);
+  assert.equal(await mute().isEnabled(), true);
   await reply(0, 99);
-  assert.equal(await stop().isEnabled(), true);
+  assert.equal(await mute().isEnabled(), true);
   // Foreground operations must still disable controls while they are pending.
-  await stop().click();
-  assert.equal(await stop().isDisabled(), true);
+  await mute().click();
+  assert.equal(await mute().isDisabled(), true);
   await reply(1);
-  assert.equal(await stop().isEnabled(), true);
+  assert.equal(await mute().isEnabled(), true);
   await page.evaluate(() => { window.volumeTest.state.busy = true; window.volumeTest.publish(); });
   await paint();
-  assert.equal(await stop().isDisabled(), true);
+  assert.equal(await mute().isDisabled(), true);
 });
 
 test('pointer dragging keeps the thumb under the pointer while the replay clock changes', async () => {
@@ -125,7 +125,7 @@ test('pointer dragging keeps the thumb under the pointer while the replay clock 
       assert(value, 'The drag must produce a native input event');
       await tick();
       assert.equal(await slider().inputValue(), value, 'A clock tick must not move the thumb away from the pointer');
-      assert.equal(await stop().isEnabled(), true);
+      assert.equal(await mute().isEnabled(), true);
       assert.equal(await page.evaluate(() => document.activeElement === window.volumeTest.input && document.querySelector('.task input[type=range]') === window.volumeTest.input), true);
       assert.deepEqual(await slider().boundingBox(), bounds);
     }
@@ -216,7 +216,7 @@ test('real volume saves keep the layout stable while actual failures remain retr
       assert.equal(await page.locator('.context .notice').count(), 0, 'A pending successful save must not be presented as a failure');
       assert.deepEqual(await page.locator('.task').boundingBox(), bounds, 'Saving must not shift the page');
       assert.equal(await slider().inputValue(), '99');
-      assert.equal(await stop().isEnabled(), true);
+      assert.equal(await mute().isEnabled(), true);
     }
     release(); await session.settled(); await publish(); await paint();
     assert.equal(library.snapshot().settings.volume, 99);
