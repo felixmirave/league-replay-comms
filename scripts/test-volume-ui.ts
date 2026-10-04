@@ -106,6 +106,32 @@ test('volume changes never flash unrelated buttons into their disabled state', a
   assert.equal(await mute().isDisabled(), true);
 });
 
+test('mute icons keep the button and volume slider in place in listening and Settings', async () => {
+  for (const settings of [false, true]) {
+    if (settings) await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const scope = settings ? page.getByRole('dialog') : page.locator('.task');
+    const button = scope.locator('.mute-button');
+    const volume = scope.getByRole('slider', { name: 'Comms volume' });
+    const bounds = await button.boundingBox(), sliderBounds = await volume.boundingBox();
+    assert(bounds);
+    assert.equal(bounds.width, 40);
+    assert.equal(bounds.height, 40);
+    for (const muted of [true, false]) {
+      await button.click();
+      const index = await page.evaluate(() => window.volumeTest.calls.length - 1);
+      assert.deepEqual(await page.evaluate(index => window.volumeTest.calls[index]!.command, index), { type: 'mute', muted });
+      await page.evaluate(muted => { window.volumeTest.state.library.muted = muted; }, muted);
+      await reply(index);
+      assert.equal(await button.getAttribute('aria-label'), muted ? 'Unmute comms' : 'Mute comms');
+      assert.equal(await button.getAttribute('aria-pressed'), String(muted));
+      assert.equal(await button.innerText(), '');
+      assert.equal(await button.locator('svg').count(), 1);
+      assert.deepEqual(await button.boundingBox(), bounds);
+      assert.deepEqual(await volume.boundingBox(), sliderBounds);
+    }
+  }
+});
+
 test('pointer dragging keeps the thumb under the pointer while the replay clock changes', async () => {
   const bounds = await slider().boundingBox();
   assert(bounds, 'Volume slider has no layout');

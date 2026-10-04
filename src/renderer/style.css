@@ -93,4 +93,4 @@ dl { display: grid; grid-template-columns: 130px 1fr; gap: 10px; font-size: 13px
 
 .volume-controls { display: flex; align-items: center; gap: 12px; }
 .volume-controls .volume { flex: 1; }
-.volume-controls button { white-space: nowrap; }
+.volume-controls .mute-button { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; padding: 0; margin: 0; }
