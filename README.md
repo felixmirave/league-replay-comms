@@ -1,262 +1,8 @@
 # League Replay Comms
 
-A Windows companion for listening to original-match comms while reviewing a replay
-in League. The application follows the replay's clock, pause state, speed, and seeks.
+A Windows companion for listening to original-match comms while reviewing a replay in League. It follows the replay's clock, pause state, speed, and jumps automatically once a recording and its timing are ready.
 
-Implementation is in progress. The application supports media preview, audio-track
-selection, radio voice, noise suppression, sound positioning, a single live timing
-offset, replay following, diagnostic export, and a
-saved recording library. Background content hashing restores track and timing after
-recording renames or moves to known/configured folders. Automatic video alignment
-uses the midpoint between consecutive frames where the game timer advances one
-second, and applies that offset automatically. Partial recordings are supported;
-no start/end-of-match footage, consistency checks or phase profile is required.
-Manual correction remains available. The guided setup
-detects configuration, enables the Replay API with a backup, and restores an
-unchanged configuration from that backup. Windows elevation is requested only
-after a permission failure. Windows/UAC behavior and timing targets have not yet
-been validated against League.
-
-Media import probes audio/video streams and preserves their timestamp origins.
-When track duration is missing, a cancellable background packet scan determines
-audio bounds while preview remains available. Probed information is cached with
-the recording identity; following stays silent outside the selected track.
-Automatic detection reads the game clock in the top-right corner of the video.
-If it cannot read a usable clock tick, the app opens manual alignment directly.
-Type an offset or move the recording back/forward while listening alongside League.
-For videos, **Adjust timing → Detect offset from video clock** retries automatic alignment.
-There are no waveform, timestamp-pair, or clock-region selection steps. The selected
-pair of clock frames is cached by recording contents; its midpoint is recomputed when reused.
-
-Unsaved alignment changes remain attached to their recording and audio track when
-you switch views. Recording/track choices, volume, sound filters, media
-folders, and installation selection also retain failed saves for retry. A saved
-recording and track can be restored before an alignment has been set; following
-still requires alignment. If a save fails, retry pending changes from the review
-window. Closing first drains accepted edits and tries saving again; remaining
-errors offer retry, cancel, or explicit discard. Cancelling close keeps audio paused.
-If closing interrupts recording identification, reopening the app resumes
-the unfinished import at its unchanged original path, including its track and
-manual edits. A changed or missing file requires explicit reopening.
-
-System interruption recovery stops the old player and reloads the unchanged
-recording with its selected track, volume, mute state, and sound filters. Saved alignment is retained;
-following resumes automatically after a fresh replay clock and verified seek. **Retry playback** also restarts the
-player. Output changes also stop and replace the player, preserving the recording,
-track, volume, and saved offset. Preview returns paused; following must obtain a
-fresh replay clock and verified seek. Repeated output failures stop automatic
-retries. Diagnostics show the reported driver and configured device selection.
-Real Windows sleep, device changes, and physical audio timing remain acceptance
-requirements.
-
-See [the implementation plan](IMPLEMENTATION_PLAN.md) and
-[current validation results](tests/acceptance/STATUS.md).
-
-## Sound filters
-
-Below comms volume, **Radio voice**, **Noise suppression**, and **Sound position**
-each have a toggle and slider. Settings are shared with the Recording section in
-Settings and saved automatically. Toggles, radio strength, and sound position apply
-immediately; suppression amount changes apply after a short idle interval. Filter
-errors appear beside these controls and do not replace playback errors. Radio strength runs from lighter to stronger
-without percentage labels. The prototype's endpoints and defaults are preserved,
-including the fixed +12 dB radio gain and default 60% left position. Slider
-readouts omit technical units; sound position identifies the center.
-
-Bundled FFmpeg streams the chosen track as 48 kHz stereo PCM. Independent workers
-prepare original audio and DeepFilterNet3 mono audio with bounded read-ahead; the pinned
-model's 1,440-sample delay is verified and corrected, including seek history and
-final speech samples. A hidden, isolated Web Audio renderer uses the prototype's
-two high/low-pass pairs, presence filter, stereo panner, smooth gain changes, and
-output compressor. Its measured lookahead is included in the device audio clock.
-mpv retains native track and timestamp discovery. Replay speed uses waveform
-similarity overlap-add to preserve voice pitch with one timeline for both paths.
-Seeks discard the previous working buffer and resume original audio after a small
-prefill. When suppression catches up, the worklet fades into its samples over
-50 ms at the same source position. If suppression fails, original audio keeps
-playing and the filter controls explain that suppression is unavailable.
-Suppression edits prepare independently without pausing playback. The player retains only buffer ranges; PCM is transferred to
-the worklet in incremental ranges without resending previously published samples. Decoder EOF flushes only the
-remaining filter tail, including when the audio ends before the video. There is no disk cache or retention of prepared sections.
-Noise suppression reduces background sound; it cannot isolate particular speakers.
-The model and assets are bundled locally; recording data stays on the computer.
-
-`npm run test:filters-browser` tests the real model, native decoding, filter
-combinations, seeks, track changes, replay speed, and the React controls in Chromium.
-Install a Playwright-compatible Chromium or set `COMMS_CHROMIUM_EXECUTABLE`.
-`COMMS_FFMPEG` can override the bundled FFmpeg executable for this test.
-`node scripts/benchmark-audio-seek.ts` measures seek preparation and first rendered
-sound with suppression off/on in generated FLAC and AAC/Matroska recordings.
-`COMMS_SEEK_REPORT` saves a JSON report; use the same Chromium/FFmpeg overrides.
-Measurements exclude League observation latency and physical device output.
-Real Windows output-device changes and physical League synchronization still need
-acceptance testing.
-
-## Development
-
-Use Node.js 22.18+ from the 22.x line, or Node.js 23.6+. Windows is the supported
-application platform.
-
-Application code, tooling, and tests use TypeScript. Node runs the scripts in
-`scripts/` directly; use explicit `.ts` extensions for their local runtime imports
-and erasable type syntax. `npm run typecheck` checks both the application and
-scripts. Electron test entry points in `scripts/fixtures/` are checked with the
-application and bundled to JavaScript before launch.
-
-```sh
-npm ci
-npm run setup:electron
-npm run prepare:native
-npm run prepare:ocr
-npm run prepare:notices
-npm start
-```
-
-`prepare:native` downloads pinned Windows mpv, FFmpeg/ffprobe, and Vulkan-loader archives, verifies
-their checksums, and extracts them into ignored resource directories. This is a
-developer build step; the packaged application uses local bundled executables.
-FFmpeg and ffprobe share seven bundled DLLs; mpv uses the smaller upstream MSVC
-build. Exact versions, build sources, and packaging choices are documented in
-[Native dependencies](resources/NATIVE_DEPENDENCIES.md).
-`prepare:ocr` builds the local clock worker and copies its WASM and language data
-from the locked npm packages. OCR never downloads a model at runtime.
-`prepare:notices` collects full license texts from production npm packages and
-checksum-pinned upstream sources, then creates an offline **Third-party notices**
-page accessible from the application. It retains provenance qualifications and
-known source-coverage gaps. A changed dependency requires regenerating notices;
-changes to audited upstream bundles also require updating their pinned manifest.
-
-## Checks and packaging
-
-```sh
-npm run check
-npm run test:packaging
-npm run test:engine
-npm run smoke:ui
-npm run test:startup-ui
-npm run test:volume-ui
-npm run test:filters-browser
-npm run test:timing-ui
-npm run smoke:driver
-npm run test:review-ui
-npm run package:win
-npm run verify:artifact
-```
-
-`check` performs TypeScript checks, deterministic tests, and the production build.
-It includes the [reviewed screenshot corpus](tests/fixtures/ocr/README.md#real-images)
-through the production clock crop/OCR. This requires prepared OCR resources and
-FFmpeg: the bundled executable on Windows, or `COMMS_TEST_FFMPEG` / `ffmpeg` on Linux.
-Run just these 31 cases with `npm run test:ocr-corpus`.
-The real-engine test is skipped by the default suite unless `COMMS_TEST_MPV` is set.
-`test:engine` requires a real mpv and defaults to the prepared Windows executable;
-it uses null audio output to verify engine behavior, not physical audible timing.
-`smoke:ui` launches the real Electron application and requires a desktop session.
-`test:review-ui` additionally exercises real mpv with null output, the hash worker,
-saved manual alignment, restart, rename detection, and folder-based relocation.
-Both UI tests use isolated temporary library directories. They do not test League
-or physical audio output.
-`test:volume-ui` runs the renderer in Electron with controlled desktop responses
-and requires a desktop session. It checks pointer and keyboard volume changes
-across replay-clock updates, delayed replies, and failed saves in both controls.
-`test:startup-ui` holds initialization I/O in the real Electron app to check that
-the loading window appears first, errors replace it, and closing during startup
-exits cleanly. It also requires a desktop session.
-When `COMMS_TEST_FFMPEG` is provided (or bundled FFmpeg is available on Windows),
-the review test also imports a generated POV video, resolves missing track timing
-in the background, verifies cached timing, and edits a single offset after failed
-detection. `test:timing-ui` checks live controls, partial signed input, stale replies,
-save failures, and explicit listening intent in the real renderer. With prepared OCR resources, it also
-reads a generated top-right clock, cancels an analysis through a manual edit,
-re-runs detection, and checks automatic midpoint alignment and saved timing
-restoration after rename.
-It also blocks a library write, cancels a window-close attempt with unsaved changes,
-then restores the destination and verifies successful saving.
-Setup checks use a synthetic installation to verify config detection and refresh
-independently of replay connectivity. On Windows, or when `COMMS_TEST_POWERSHELL`
-points to a test PowerShell executable, the helper integration tests exercise
-actual config edits, backups, restore, sharing conflicts, and stale-file rejection.
-The desktop workflow also exercises enable/restore through the real helper.
-Actual Windows discovery, handle checks, and elevation remain separate gates.
-
-The portable executable is generated under `release/`. This development artifact
-is unsigned and is not a completed public release. Packaging refuses missing or
-modified native resources. Public distribution and Windows acceptance gates remain
-in [the plan](IMPLEMENTATION_PLAN.md).
-
-The portable launcher shows **Starting…** while extracting the app. Once Electron
-starts, the main window shows an animated loading indicator while the library and
-services initialize. The launcher splash closes before Electron starts, so a brief
-gap between the two windows is possible. Edit `build/splash.svg` and run
-`npm run prepare:splash` in a desktop session to regenerate the checked-in bitmap;
-ordinary builds use that bitmap without needing image conversion or a desktop.
-The replay-headset artwork is shared by the splash and app header through
-`src/renderer/public/icon.png` (256×256). `build/icon.ico` contains the Windows
-sizes from 16 to 256 pixels and supplies both executable icons and the running
-window's icon. Windows resource editing stays enabled; only code signing is
-disabled. Regenerate the splash bitmap after changing the PNG.
-
-Release builds minify the main process and workers and omit source maps and npm
-packages already compiled into `dist`. The portable payload keeps English Electron
-locales, Node OCR cores with all SIMD fallbacks, and native license/build notices.
-Browser OCR bundles, upstream manuals, and installer examples are omitted. A pack
-hook removes Electron's duplicate Chromium notices only after checking that the
-copy linked from the offline notices page is identical.
-
-`verify:artifact` checks both executables' embedded icon resolutions and the staged
-app against the current build/resources, then extracts the portable executable's
-embedded archive into a temporary directory.
-It compares every extracted file with the staged build, including runtime libraries
-and notices, and removes the temporary copy. Verification needs roughly 1 GiB of
-additional disk space for the current payload. It writes SHA-256 and verification
-records beside the executable; neither record establishes Windows execution or
-audible accuracy.
-
-For the complete automated Windows build and desktop validation, use
-`npm run validate:windows` from an unelevated interactive desktop session. It
-produces per-stage logs and checksum-bound reports under `release/validation/`,
-then tests the actual portable executable with an isolated profile. See the
-[Windows automation guide](tests/acceptance/AUTOMATED_WINDOWS.md) for runner
-requirements, covered cases, and the separate real-client/audio gates.
-The [timing measurement tools](tests/acceptance/TIMING.md) generate a known marker
-recording and summarize independent capture annotations, including uncertainty,
-failed responses, and muted time. They do not infer physical accuracy from player
-command acknowledgments.
-
-[Diagnostic traces](tests/acceptance/WINDOWS.md#diagnostic-traces) include controller
-state, active timing context, and explicit retention limits. Export masks local
-file paths by default; the diagnostics panel offers explicit path inclusion.
-Resource verification checks x64 PE imports and local DLL exports, including mpv's
-Vulkan loader, so startup does not rely on an extra graphics-runtime installation
-or the launch directory. This structural check does not replace Windows execution.
-The dependency-check regression tests run with
-`node --test scripts/windows-native.test.ts` after native preparation.
-
-Packaging stages the application and compresses the portable executable in separate
-processes to bound memory use. `verify:artifact` checks the current staged modules
-and native digests and writes the executable's SHA-256 file. It does not substitute
-for running that executable on Windows.
-
-For Linux development, pure tests and builds work without a desktop. Set
-`COMMS_TEST_MPV` to an available Linux mpv to run the engine test. Running the UI also
-requires Electron's Linux libraries and a display; Linux application distribution
-is not a product target.
-Set `COMMS_TEST_FFMPEG` and `COMMS_TEST_FFPROBE` as well to include generated media
-timeline fixtures in `test:engine`. Windows defaults to the prepared bundled tools.
-
-## Verification in a Debian development environment
-
-Run the actual app with a controllable HTTPS replay simulator and captured virtual
-audio output, including UI actions, pause/seek/speed changes and source-sample checks:
-
-```sh
-sh scripts/linux.sh --prepare
-sh scripts/linux.sh npm run verify:linux
-sh scripts/linux.sh npm run dev:verify
-```
-
-See [development verification](tests/acceptance/DEV_ENVIRONMENT.md) for real recording
-input, interactive agent controls, retained evidence, rootless setup and limits.
+Version 0.3.0 includes track selection, automatic video-clock alignment, manual timing correction, sound filters, and a saved recording library. Recordings stay on your computer and are opened read-only. The portable development executable is unsigned; Windows/current-League acceptance and physical timing targets remain open. See [current validation status](tests/acceptance/STATUS.md).
 
 ## Review workflow
 
@@ -283,19 +29,75 @@ are secondary; there is no replay-file picker or replay confirmation step.
    **Adjust timing** reopens it without interrupting an active listening session.
    Brief connection failures recover automatically. A changed League process requires
    choosing a recording for the new replay; saved timing remains available.
-   **Mute comms** silences output while preserving the chosen volume and synchronization.
+   The speaker icon beside volume mutes/unmutes comms while preserving the chosen volume and synchronization. Its tooltip and accessible label describe the action.
 
 **Prepare a recording without League** allows offline offset entry.
 **Settings** contains connection details, config backups and guarded restoration,
-recording search folders, track selection, clock-detection retry, volume, and timing diagnostics.
+recording search folders, track selection, clock-detection retry, volume, mute, sound filters, and timing diagnostics.
 **Locate recording** verifies the contents of a moved file before restoring timing;
 a changed or transcoded recording is treated as a new file.
 
 Library data lives in Electron's per-user application data directory, independently
 of the executable. Original recordings are not modified. Schema 6 stores timing by
 recording contents and audio track. Upgrades preserve legacy replay associations as
-recovery data; conflicting offsets require manual correction. Automatic replay-to-
-recording lookup is omitted until current-client identification is validated.
+recovery data; conflicting offsets require manual correction. Automatic replay-to-recording lookup is not implemented.
 
-See [validation status](tests/acceptance/STATUS.md) for build evidence and remaining
-Windows/current-League checks.
+## Sound filters
+
+**Radio voice**, **Noise suppression**, and **Sound position** sit directly below comms volume. Each has a toggle, slider, and short explanation; the same controls appear in Settings → Recording. Values save automatically. Radio strength uses Lighter–Stronger labels without percentages; position uses Left–Right and indicates Center.
+
+Filter edits keep playback running. After a jump, original audio starts after a small prefill while suppression prepares and fades in at the same source position. If suppression fails, original audio keeps playing and a message appears beside the controls. Noise suppression reduces background sound; it cannot isolate particular speakers. The model is bundled locally, with no disk cache or retained prepared audio sections.
+
+## Development
+
+Use Node.js 22.18+ from the 22.x line, or Node.js 23.6+. Windows is the supported application platform. Application code, tooling, and tests use TypeScript; Node scripts use explicit `.ts` imports and erasable syntax. `typecheck` checks the application and scripts.
+
+```sh
+npm ci
+npm run setup:electron
+npm run prepare:native
+npm run prepare:ocr
+npm run prepare:notices
+npm start
+```
+
+Preparation downloads checksum-pinned Windows native tools, builds offline OCR assets from locked packages, and collects third-party notices. Packaged runtime resources are local. See [native dependencies](resources/NATIVE_DEPENDENCIES.md) for versions, packaging choices, and outstanding distribution obligations. Regenerate notices when dependencies change.
+
+For the rootless Debian development environment:
+
+```sh
+sh scripts/linux.sh --prepare
+sh scripts/linux.sh npm run verify:linux
+sh scripts/linux.sh npm run dev:verify
+```
+
+[Development verification](tests/acceptance/DEV_ENVIRONMENT.md) describes real recording input, the HTTPS replay simulator, captured audio, individual test prerequisites, and interactive controls. Linux output evidence does not establish Windows or real-League behavior.
+
+## Checks and packaging
+
+| Command | Purpose |
+| --- | --- |
+| `npm run check` | Type checks, application tests including the 31-image OCR corpus, and production build |
+| `npm run test:packaging` / `npm run test:validation` | Packaging and validation-tool regression checks |
+| `npm run test:engine` | Native mpv timeline/adapter checks with null output |
+| `npm run smoke:ui` / `npm run smoke:driver` | Real Electron startup and automation attachment |
+| `npm run test:startup-ui` / `npm run test:review-ui` | Startup lifecycle and recording/persistence workflows |
+| `npm run test:volume-ui` / `npm run test:timing-ui` | Real renderer controls, delayed replies, save failures, mute layout and live timing |
+| `npm run test:filters-browser` | Separate Chromium model/filter/seek/control checks |
+| `npm run package:win` | Required checks, resource integrity, and Windows portable packaging |
+| `npm run verify:artifact` | Embedded icons and exact extracted-payload comparison against the staged build |
+| `npm run validate:windows` | Automated build and source/portable desktop workflows on Windows |
+
+UI checks require a display; native/OCR checks require prepared resources. Details and overrides are in [development verification](tests/acceptance/DEV_ENVIRONMENT.md#individual-checks-and-prerequisites). Packaging writes `release/LeagueReplayComms-0.3.0-x64.exe`; artifact verification writes checksum and payload records beside it. These records do not establish Windows execution or physical audio accuracy.
+
+Run Windows validation from an unelevated interactive desktop. The [Windows automation guide](tests/acceptance/AUTOMATED_WINDOWS.md) documents stages, isolation, packaging details, and artwork maintenance. Browser filter verification is separate from both automated Windows and Linux pipelines.
+
+For the browser filter check, install a Playwright-compatible Chromium or set `COMMS_CHROMIUM_EXECUTABLE`; `COMMS_FFMPEG` overrides the decoder. `node scripts/benchmark-audio-seek.ts` measures seek preparation and first rendered sound in generated recordings, with suppression off/on. `COMMS_SEEK_REPORT` saves JSON; use the same Chromium/FFmpeg overrides. These measurements exclude League observation latency and physical output.
+
+## Documentation
+
+- [Architecture, scope, and acceptance requirements](IMPLEMENTATION_PLAN.md)
+- [Guided UI contract](UX_DESIGN.md)
+- [Current validation status](tests/acceptance/STATUS.md) and [historical evidence](tests/acceptance/HISTORY.md)
+- [Windows real-client acceptance](tests/acceptance/WINDOWS.md), including bounded diagnostic exports with paths masked by default
+- [Independent timing measurements](tests/acceptance/TIMING.md)

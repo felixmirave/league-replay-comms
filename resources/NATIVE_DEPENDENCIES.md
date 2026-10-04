@@ -1,6 +1,6 @@
 # Native playback dependencies
 
-The probe bundles Windows x64 mpv, FFmpeg/ffprobe, and a Vulkan loader from the pinned archives in
+The application bundles Windows x64 mpv, FFmpeg/ffprobe, and a Vulkan loader from the pinned archives in
 `native-manifest.json`. Downloads are verified against SHA-256 digests published
 with the upstream release. The preparation script copies only the binaries and
 license/build files declared in the manifest. Manuals, examples, and upstream
@@ -14,8 +14,7 @@ installers remain in the download cache. mpv's license texts are collected by
 - [mpv copyright and licensing](https://github.com/mpv-player/mpv/blob/v0.41.0/Copyright).
 - [FFmpeg licensing](https://ffmpeg.org/legal.html).
 
-mpv directly imports the Vulkan loader even though this application selects no
-video track. The build verifies that the local x64 loader exports every imported
+mpv supplies track and timestamp metadata with null audio output. FFmpeg decodes the audible PCM stream for Web Audio. mpv directly imports the Vulkan loader even though this application selects no video track. The build verifies that the local x64 loader exports every imported
 function, and that every non-system DLL and imported symbol in the transitive
 dependency graph is present beside the native tools. It also rejects unexpected
 native files. This is a structural check; clean-Windows startup remains untested.
@@ -24,11 +23,10 @@ mpv still contains its own statically linked FFmpeg libraries. Only the FFmpeg a
 ffprobe command-line tools share DLLs; replacing mpv's internal libraries would
 require a separate compatible mpv build. No decoder or filter was selectively
 removed from the upstream binaries. The application's Windows integration tests
-exercise probing, waveforms, frame extraction, clock OCR, Lua heartbeat, track
-switching, and playback timing with the prepared executables.
+exercise probing, frame extraction, clock OCR, Lua heartbeat, track switching, and native timeline behavior with the prepared executables. Filtered playback has separate browser and connected-audio checks.
 
 Public distribution still requires auditing the selected build's complete license
-and corresponding-source obligations. This development probe is not a completed
+and corresponding-source obligations. The unsigned development artifact is not a completed
 public release. Offline OCR resources are included under `ocr/`. The generated
 `notices/THIRD_PARTY_NOTICES.html` page collects production npm license texts and
 pinned mpv, OCR-native, runtime, model, Unicode, and browser-bundle notices. Its

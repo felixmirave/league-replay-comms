@@ -1,6 +1,6 @@
-# Windows probe validation
+# Windows application acceptance
 
-This procedure collects milestone 1 evidence. It does not certify the completed
+This procedure checks the current application on Windows and against real League replays. It does not certify the completed
 application or establish physical audible accuracy by itself.
 
 The [automated Windows workflow](AUTOMATED_WINDOWS.md) builds and checks the exact
@@ -17,14 +17,13 @@ the clean test account and with the real League client and physical output setup
   comparison is required before this procedure and does not replace execution.
 - A known matching event to establish an initial manual anchor.
 
-Record Windows version, League patch, probe version/checksum, recording container
+Record Windows version, League patch, application version/checksum, recording container
 and codec, audio device, connection type (wired/Bluetooth), and display refresh rate.
 Do not install Node, npm, Python, mpv, or FFmpeg on the clean test account.
 
 ## Startup and playback
 
-Verify mpv startup from an unrelated working directory on a clean Windows machine
-without a separately installed Vulkan runtime. Its pinned loader must resolve from
+Verify metadata mpv startup and audible FFmpeg/Web Audio playback from an unrelated working directory on a clean Windows machine without a separately installed Vulkan runtime. Its pinned loader must resolve from
 the native-tool directory. Exercise audio-from-video loading, seeks and rates with
 the optional renamed D3D compiler absent. Passing the PE dependency check alone
 does not establish successful Windows startup or audio output.
@@ -61,7 +60,7 @@ does not establish successful Windows startup or audio output.
 | Play at 1× | Comms follow without periodic skips or accumulating drift |
 | Pause/resume | Audio stops/resumes with the replay |
 | Set 0.5× and 2× | Audio follows rate with pitch preserved |
-| Set higher navigation speed | The probe reports unsupported speed and suppresses audio |
+| Set higher navigation speed | The app reports unsupported speed and suppresses audio |
 | Seek forward/backward, including under two seconds | Audio recovers to the corresponding moment |
 | Seek while paused | Audio stays paused at the new position |
 | Rapidly scrub between distant points | Intermediate targets do not resume obsolete audio |
@@ -76,14 +75,28 @@ does not establish successful Windows startup or audio output.
 | Trigger repeated output failures | Automatic replacements are bounded; no recurring playback/restart loop; deliberate retry remains available |
 | Change output during a seek or track selection | Obsolete position/completion cannot resume playback; the selected stream is verified before recovery completes |
 | Reach recording EOF, then seek backward in League | Comms resume at the corresponding recording position without an output-recovery loop |
-| Terminate the companion or its sync process | The owned mpv process stops; no indefinite orphan audio |
+| Terminate the companion or its sync process | The hidden audio renderer and owned native children stop; no indefinite orphan audio |
+
+## Sound filters and mute
+
+Use audible speech with background noise, not only synthetic timing tones. Record filter settings and output hardware with each result.
+
+1. Verify **Radio voice**, **Noise suppression**, and **Sound position** appear directly below volume and in Settings → Recording, with matching values in both locations. Each has a toggle, slider, and short explanation. Disabled sliders retain their values; radio strength shows Lighter–Stronger without percentages.
+2. In a fresh profile, verify radio and suppression are enabled at their defaults and sound position is disabled. Exercise both slider endpoints and the default values in `src/shared/filters.ts`. Check left/right direction and the Center indication.
+3. Listen with each filter separately and all combinations. Check for echo, reverberation, clipping, or unexpected level changes; radio includes a fixed +12 dB gain with output compression. Repeat at 0.5×, 1×, and 2×.
+4. Change suppression amount during steady playback. The listening screen must remain available and original audio must keep playing while suppression prepares. Seek to distant positions with suppression off and on: original audio resumes after prefill, then suppression fades in at the same source position. Measure recovery separately from filter warm-up.
+5. On the developer runner, run `npm run test:filters-browser` for the controlled suppression-worker failure case: it verifies rendered original audio continues and the suppression error is reported. On the packaged app, check the local filter message if an actual suppression failure occurs. Keep browser regression evidence separate from Windows physical-output observations.
+6. Toggle the speaker icon beside volume with mouse and keyboard in both locations. Verify **Mute comms**/**Unmute comms** tooltips and accessible labels, pressed state, and fixed 40 × 40 px button dimensions. The button and slider must not move when toggled. Muting leaves synchronization active; unmuting restores the chosen volume at the current replay position.
+7. Change volume while muted, then unmute. Verify the new volume is used. Restart and exercise API, power, and output recovery; the selected volume, mute flag and filters must survive. Include mute/filter changes in the unwritable-library save/retry tests below.
+
+The standalone browser filter check is useful regression evidence but does not certify Windows device behavior or physical timing. It is not part of `validate:windows`.
 
 ## Saved reviews and media import
 
 1. Set a manual offset and adjust it by 10 ms; select another audio track and set a
    different offset. Check that switching tracks restores their individual values.
 2. Close/reopen the app and reopen the recent recording. Verify recording, selected
-   track, effective offset, and volume.
+   track, effective offset, volume, mute, and sound filters.
 3. Rename the recording in its current folder and repeat. Then move it elsewhere;
    verify **Locate recording** and **Add media folder**, including a different file with
    the same name and size that must not inherit the saved alignment.
@@ -106,10 +119,10 @@ does not establish successful Windows startup or audio output.
    save a manual anchor. Retry detection and cancel during decoding or recognition. Change the offset while analysis runs; a late result
    must retain the edit. Re-run while aligned and check that failure retains it.
    A successful reading must apply the consecutive-frame midpoint automatically,
-   including for late-starting or early-ending clips. It must not start following.
+   including for late-starting or early-ending clips. Following starts automatically when the chosen track, bounds, and fresh verified replay are ready; it stays silent when League is paused or disconnected.
    Use the exact executable with network access unavailable to test local OCR assets.
 9. Restart after a successful clock reading, rename the video, and reopen it. Verify
-   its saved automatic timing is restored. Explicit **Read game clock**
+   its saved automatic timing is restored. Explicit **Read game clock again**
    must run a fresh analysis. Test loading/postgame footage and short clips. After
    one readable adjacent tick is found, the reader must stop without checking
    later clocks for consistency. Confirm manual timing corrections still work.
@@ -174,10 +187,7 @@ Run the helper integration tests on Windows as well. The Linux helper tests vali
 the common parser/transaction path; they do not establish Windows sharing, native
 handle validation, UAC behavior, or resilience to power loss.
 
-Check whether the output-reinitialization fallback described in
-[STATUS.md](STATUS.md) is needed on the Windows build. Record seek recovery cost
-and any device clicks/dropouts. An internal command reply is not evidence that the
-right sample has reached the output.
+Verify audible recovery through the Web Audio path after device changes and player/renderer failures. Metadata mpv uses null output; its `ao-reload` fallback is not proof of audible recovery. Record seek recovery cost and device clicks/dropouts. An internal command reply is not evidence that the right sample reached the output.
 
 ## Diagnostic traces
 

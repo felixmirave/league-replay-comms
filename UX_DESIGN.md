@@ -5,15 +5,11 @@ Implementation: the production window now uses `GuidedWorkflow` in
 `src/renderer/timing-editor.tsx` retains the offset input during live edits. Schema 6 persists
 recording/track timing without manual replay associations.
 
-Accepted design direction, revised 2026-10-01: no manual replay-file selection or replay-confirmation task. Failed automatic clock detection goes directly to one live offset field with Back/Forward controls. There are no waveforms, timestamp pairs, frame previews, or clock-area selection. This specifies the implemented user flow. The [implementation plan](IMPLEMENTATION_PLAN.md) owns playback, recording identity, alignment, and accuracy requirements.
+Implemented design, revised 2026-10-04: no manual replay-file selection or replay-confirmation task. Failed automatic clock detection goes directly to one live offset field with Back/Forward controls. There are no waveforms, timestamp pairs, frame previews, or clock-area selection. This specifies the implemented user flow. The [implementation plan](IMPLEMENTATION_PLAN.md) owns playback, recording identity, alignment, and accuracy requirements.
 
-Replace the dashboard with one current task. Show one primary action when the user needs to act, and advance automatically when the application can do the work. Preserve access to changing a choice, cancelling work, and Settings without making them compete with the next step.
+Show one current task. Show one primary action when the user needs to act, and advance automatically when the application can do the work. Preserve access to changing a choice, cancelling work, and Settings without making them compete with the next step.
 
-## Original problem
-
-The original main view presented Replay, Recording, and Align and follow together. The prerequisite setup panel was collapsed. Users must discover the order themselves, interpret disabled controls, and distinguish several alignment methods. Playback recovery is hidden in Diagnostics. A video estimate requires copying a number into another section before applying it.
-
-The redesign follows three established principles: one main action, questions only when relevant, and complexity revealed when needed. [GOV.UK button guidance](https://design-system.service.gov.uk/components/button/), [form structure guidance](https://www.gov.uk/service-manual/design/form-structure), and [NN/g progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/) support these principles. The particular sequence below is our design proposal; it still needs usability testing with players.
+The interface follows three principles: one main action, questions only when relevant, and complexity revealed when needed. [GOV.UK button guidance](https://design-system.service.gov.uk/components/button/), [form structure guidance](https://www.gov.uk/service-manual/design/form-structure), and [NN/g progressive disclosure](https://www.nngroup.com/articles/progressive-disclosure/) support these principles. The implemented sequence below still needs usability testing with players.
 
 ## The window
 
@@ -36,11 +32,8 @@ flowchart TD
     B -->|No| C[Show the next setup repair]
     C --> A
     B -->|Yes| D[Wait for replay in League]
-    D --> F{Verified automatic replay link available?}
-    F -->|Yes| G[Restore linked recording]
-    F -->|No or detection unavailable| H[Choose or reopen recording]
-    G --> I[Restore saved track and timing; choose track only if needed]
-    H --> I
+    D --> H[Choose or reopen recording]
+    H --> I[Restore saved track and timing; choose track only if needed]
     I --> J{Accepted timing available?}
     J -->|Yes| N[Follow League automatically]
     J -->|Video needs timing| K[Read video clock automatically]
@@ -49,6 +42,7 @@ flowchart TD
     K -->|Clock not found or analysis failed| L
     L --> N
     N --> P[Listen while controlling League]
+    P -->|Verified viewer PID changed| H
 ```
 
 “Connection prerequisites satisfied” means either the relevant setup is verified or an independently trusted, usable replay connection already exists. An unknown installation path must not block an already working connection. Keep configuration and runtime connectivity as separate facts.
@@ -72,11 +66,11 @@ flowchart TD
 | Clock cannot be read or analysis fails | **Adjust timing**. Explain briefly that automatic detection failed. | Open the live offset editor; **Done** returns to review. |
 | Audio-only or manual fallback | **Adjust timing**. Listen alongside the replay and move the recording back or forward. | **Done**; see the manual flow below. |
 | All playback prerequisites met | **Following League**. Show the recording and replay state. | Begin playback automatically using fresh replay state and valid track bounds. |
-| Following | **Following League**. Show the replay time, rate, and volume. | No required next action. **Mute comms** sits beside volume and preserves its value; **Adjust timing** is secondary. |
+| Following | **Following League**. Show the replay time, rate, and volume. | No required next action. A fixed-size speaker/muted-speaker icon sits beside volume, with **Mute comms**/**Unmute comms** as its tooltip and accessible label. It preserves volume and synchronization; **Adjust timing** is secondary. |
 
-There is no replay picker or replay-confirmation screen. API process ID plus Windows process information may identify the replay automatically. Support automatic replay-to-recording links only if that path is validated against the current client; unavailable identity skips the convenience entirely. Never infer a match from the newest replay file, last-used recording, or similar duration.
+There is no replay picker or replay-confirmation screen. The Replay API process ID identifies the current viewer for runtime binding; it does not identify the match. A verified PID change requires choosing a recording again. Temporary connection failures retain the selection and resume only after verifying the same PID. Missing PID leaves playback waiting. Never infer a match from the newest replay file, last-used recording, or similar duration.
 
-The returning flow is **choose the recording → restore its track and timing → follow League automatically**. The recording is recognized by content hash after renames or moves; its offset belongs to the recording and audio track. If reliable automatic replay identification supplies an existing link, skip the recording chooser too. Do not replay first-run setup. Without automatic identity, the app follows the active clock and does not claim to verify that the selected recording is from the same match.
+The returning flow is **choose the recording → restore its track and timing → follow League automatically**. The recording is recognized by content hash after renames or moves; its offset belongs to the recording and audio track. Do not repeat first-run setup. Automatic replay-to-recording links are not implemented. The app follows the active clock without claiming that the selected recording belongs to the same match.
 
 ## Alignment without a control panel
 
@@ -96,7 +90,7 @@ Place **− Back 0.1 s** and **+ Forward 0.1 s** together below the field. These
 
 Valid edits apply and save immediately. Keep the field responsive across clock ticks and delayed saves, including incomplete negative or decimal input. Display failed saves with the existing retry flow. Do not show pending writes as failures. There are no waveform, scrubbing, timestamp-pair, or separate correction controls.
 
-Opening the editor preserves playback. Valid offset edits follow League immediately; **Done** returns to review. A first offset of zero is valid and must be accepted before Done. Pause and seek League directly.
+Opening the editor preserves playback. Valid offset edits follow League immediately; **Done** returns to review. **Done** accepts an initial zero offset when no timing has been set; other valid edits apply immediately. Pause and seek League directly.
 
 Offline users can enter and save the same offset. Explain that connecting to League is required to hear adjustments. A disconnect retains the input and resumes automatically after verifying the same viewer PID. Late automatic results cannot replace accepted manual edits.
 
@@ -104,7 +98,7 @@ For video recordings, show **Detect offset from video clock** above the offset f
 
 ## While listening and recovering
 
-The listening screen is small: recording, **Following League**, replay time, volume, three sound filters, **Mute comms**, and **Adjust timing**. Place the sound filters directly below volume. Each row has a toggle, a slider, and one short explanation. Use **Radio voice** (Lighter–Stronger, no percentages), **Noise suppression** (Less–More), and **Sound position** (Left–Right). Keep disabled slider values and share settings with Settings → Recording. Omit numeric readouts; indicate Center when the position is centered. Announce distinct slider values to screen readers. Filter edits leave listening available, and filter failures appear beside the controls in either location.
+The listening screen is small: recording, **Following League**, replay time, volume, three sound filters, a mute icon, and **Adjust timing**. The mute button stays 40 × 40 px in both states, so neither it nor the volume slider moves when toggled. Place the sound filters directly below volume. Each row has a toggle, a slider, and one short explanation. Use **Radio voice** (Lighter–Stronger, no percentages), **Noise suppression** (Less–More), and **Sound position** (Left–Right). Keep disabled slider values and share settings with Settings → Recording. Omit numeric readouts; indicate Center when the position is centered. Announce distinct slider values to screen readers. Filter edits leave listening available, and filter failures appear beside the controls in either location.
 
 It has no duplicate replay transport or always-visible waveform.
 
@@ -112,9 +106,9 @@ Pause, seeking, resynchronizing, and outside-recording conditions are status var
 
 | Interruption | Response |
 | --- | --- |
-| Brief loss of clock samples | Silence comms and show **Reconnecting to League…**. Recover automatically only if the existing runtime generation/listening intent remains valid. |
-| Process replaced or ambiguous reconnect | Retain recording/timing and return to Ready with **Resume listening**. This deliberately starts a new runtime binding; it is not a statement of verified match identity. No replay-confirmation question. |
-| Different match positively identified | Stop old listening intent. Restore that match's recording only through a verified automatic link; otherwise show Choose recording. |
+| Brief loss of clock samples or unavailable PID | Silence comms and show **Waiting for League…**. Retain selection and timing; resume automatically after fresh state verifies the same viewer PID. |
+| Verified viewer PID changed | Stop the old binding and show **Choose a recording for this replay**. Saved timing remains available, but the old recording cannot resume until explicitly chosen. There is no Back action that bypasses this choice. |
+| Power or audio-output recovery | Keep the selected recording, track, timing, volume, mute and filters. Show **Reconnecting audio…** during restoration; resume after verifying the same PID and current target. Failure offers **Retry audio**. |
 | Missing or moved recording | Find it automatically where supported; otherwise show Locate recording. A hash mismatch means a different file and must not inherit the old offset. |
 | No audible output / player failure | Show **Audio could not start** and **Retry audio** on the current task. Keep diagnostics secondary. |
 | Replay speed unsupported | Stay on the listening screen, silence comms, and instruct the user to choose a supported speed in League. Resume when valid. |
@@ -137,29 +131,22 @@ Keep **Prepare a recording without League** as a secondary option on connection 
 
 Use one workflow machine in the main process to own the current task, user intent, and legal transitions. Keep the existing synchronization controller for millisecond playback behavior. Its state is an input to the workflow; it is not the navigation model.
 
-Seven parent states are sufficient:
+The workflow groups tasks into these areas, with startup and errors handled explicitly:
 
 | Parent | Relevant substates |
 | --- | --- |
 | `checking` | Discover installation/config, restore library facts |
 | `setup` | Choose folder/installation, enable, edit in progress, permission, repair |
-| `replay` | Await viewer, connection repair; optional automatic identity is background work and never a user task |
+| `replay` | Await viewer and verified PID, connection repair |
 | `recording` | Choose, open, locate missing file, choose track, media repair |
 | `alignment` | Analyze, manual editor |
-| `listening` | Following, replay paused, resynchronizing, outside recording, reconnecting, output repair |
+| `ready.offline` | Saved timing available without a live replay |
+| `listening` | Following, replay paused, resynchronizing, outside recording, reconnecting |
+| Errors | Application startup or audio repair with a specific retry action |
 
-Persist durable domain facts, not the current screen name. Configuration, runtime generation, optional automatically verified match identity, recording identity, track, alignment revision, and unsaved changes form context. Recording hash plus audio track owns saved timing. On launch, revalidate facts and choose the next unresolved prerequisite. Offline preparation remains available; playback follows automatically once its prerequisites are met.
+Persist durable domain facts, not the current screen name. Configuration, viewer PID association, recording identity, track, alignment revision, and unsaved changes form context. Recording hash plus audio track owns saved timing. On launch, revalidate facts and choose the next unresolved prerequisite. Offline preparation remains available; playback follows automatically once its prerequisites are met.
 
-Recommend a typed TypeScript transition module with an explicit event union and effect descriptions, fitting the current stack. A new FSM dependency is optional; XState is useful if actor/statechart tooling becomes valuable, but is not required for this flow. The concepts of guarded transitions, nested states, and state-scoped async work are documented by [W3C SCXML](https://www.w3.org/TR/scxml/) and [XState invocation](https://stately.ai/docs/invoke).
-
-Proposed seam:
-
-```ts
-transition(workflow, event): { workflow: Workflow; effects: Effect[] }
-present(workflow): WorkflowView
-```
-
-`WorkflowView` supplies the task ID, structured data, progress, one optional primary action, secondary actions, and review status. The renderer owns presentation and unsubmitted field input. The main process validates submitted data and allowed actions again. Do not infer navigation from prose error messages or duplicate `canFollow` conditions throughout React.
+`GuidedWorkflow.observe(snapshot)` derives a `WorkflowView` from authoritative setup, library, media, connection and controller facts. `send(intent, snapshot)` records deliberate navigation, and `complete()` returns from selection work. The view contains the task state, revision, editor key, optional primary label, and whether returning from recording selection is allowed. The renderer owns presentation and unfinished field input; the main process validates commands and performs effects through the session and setup modules. No FSM dependency is used.
 
 Implementation rules:
 
@@ -170,17 +157,11 @@ Implementation rules:
 5. Never silently enable configuration or start audible preview. Following begins automatically when the selected recording, track, accepted timing, and fresh verified replay state are ready.
 6. Bind the selected recording to the Replay API process ID. A verified PID change requires choosing a recording again, even when its saved timing is available. Connection failures do not change this identity.
 7. Retain facts and drafts through local errors; route only to the repair that is now required. Save status and background hash progress are parallel facts, not mandatory wizard steps.
-8. Recovery retains recording selection, timing, volume, mute, and viewer identity. Resume automatically after verifying the same PID, obtaining fresh replay state, and restoring audio. A new PID returns to recording selection.
+8. Recovery retains recording selection, timing, volume, mute, sound filters, and viewer identity. Resume automatically after verifying the same PID, obtaining fresh replay state, and restoring audio. A new PID returns to recording selection.
 
 Shared snapshots expose the workflow view alongside setup, library, analysis, and playback state. Those modules remain responsible for their effects. The recording-based library migration removes the persisted replay requirement; this is implemented beyond the renderer.
 
-## Implementation sequence and acceptance
-
-1. Add the workflow transition/presentation module and event contract. Define all required repairs and guard ordering before wiring screens.
-2. Replace the permanent renderer panels with the task frame. Connect setup and runtime detection, preserving explicit edit permissions and backups. Remove manual replay commands and following's dependency on a persisted replay hash.
-3. Migrate recording/track timing and recent recordings, preserving conflicting legacy offsets for checking. Add restoration/import/track tasks, then expose one live offset with Back/Forward controls. Apply detected midpoint timing automatically; save manual edits immediately.
-4. Add the compact listening screen, contextual recovery, Settings, and offline preparation. Update the review automation to drive user tasks rather than old panel labels.
-5. Exercise transitions and real UI paths; then observe unfamiliar players completing a first video review, returning review, audio-only alignment, and missing-file recovery without coaching.
+## Usability acceptance
 
 Acceptance criteria:
 

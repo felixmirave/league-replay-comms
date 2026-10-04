@@ -1,35 +1,35 @@
 # League replay comms implementation plan
 
-Updated: 2026-10-01. Status: agreed product scope; implementation in progress. Saved reviews, media previews, and experimental offline clock analysis have been built and tested locally. No current-League or clean-Windows acceptance gate has passed. See [implementation and validation status](tests/acceptance/STATUS.md).
+Updated: 2026-10-04. Version 0.3.0 implements the guided recording workflow, automatic playback, sound filters, and fast seeking. Current-League, clean-Windows, and physical-timing acceptance remain open. See [implementation and validation status](tests/acceptance/STATUS.md).
 
-This is the authoritative implementation plan. Implementation defaults can change when measurements justify it. Changes to user-visible scope or accuracy targets must be recorded explicitly.
+This document records the implemented architecture, product scope, and outstanding acceptance requirements. Source code defines current behavior; the accuracy targets below remain requirements rather than measured capabilities.
 
-Scope revision, 2026-09-30: the user rejected manual replay-file selection and replay-confirmation tasks. Remember timing by recording contents and audio track. Replay-to-recording links are an optional convenience only when automatic replay identification is validated; otherwise omit that feature and ask only for the recording. Schema 6 implements recording-based timing and preserves earlier replay-keyed data for recovery.
+Scope revision, 2026-09-30: the user rejected manual replay-file selection and replay-confirmation tasks. Remember timing by recording contents and audio track. Choose the recording explicitly; automatic replay-to-recording lookup is not implemented. Schema 6 implements recording-based timing and preserves earlier replay-keyed data for recovery.
 
 Scope revision, 2026-10-01: retain automatic top-right clock detection and fall directly back to manual anchoring if it fails. Remove video-frame previews and user-selected clock regions. Preserve existing saved alignments and legacy library data.
 
 Scope revision, 2026-10-01: manual anchoring is one editable offset with Back/Forward steps while listening alongside League. Apply and save changes immediately, preserve active listening when opening or closing the editor, and remove waveforms, timestamp-pair anchoring, and independent recording scrubbing. Keep legacy saved offsets and corrections readable.
 
-Implementation order: validate the packaged clock/player integration, complete synchronization and manual review, add the durable recording library, integrate automatic video alignment and guided setup, then validate the release on Windows. The milestones below define deliverables and exit criteria; a described feature is not a claim that it is already implemented.
+Scope revision, 2026-10-04: playback begins automatically when recording, selected track, accepted timing, usable audio bounds, and a fresh verified viewer are ready. A temporary API failure preserves the recording association; a verified viewer PID change requires choosing a recording again. Mute silences output without stopping synchronization. Production audio uses FFmpeg and Web Audio with radio voice, noise suppression, and sound positioning; mpv supplies track and timestamp metadata.
 
-For implementation, start with the [time model](#5-time-model-and-invariants) and [module interfaces](#4-processes-and-module-interfaces), then follow the [work packages](#implementation-work-packages). The [verification matrix](#13-verification-matrix) defines required coverage. Keep completed work and measured results in [validation status](tests/acceptance/STATUS.md), so this document remains the specification rather than a running test log.
+The [verification matrix](#13-verification-matrix) defines required coverage. Keep recorded results in [validation status](tests/acceptance/STATUS.md), separate from the requirements here.
 
 Implementation reference:
 
 - [User workflows](#2-user-workflows), [stack](#3-stack-and-repository-layout), and [process boundaries](#4-processes-and-module-interfaces).
 - [Replay connection and identity](#6-replay-api-and-active-replay-identity), [playback synchronization](#7-synchronization-controller), and [video alignment](#8-import-and-automatic-video-alignment).
 - [Saved recording timing and file identity](#9-library-and-file-identity) and [guided Replay API setup](#10-replay-api-setup).
-- [Accuracy criteria](#11-diagnostics-and-acceptance-criteria), [implementation milestones](#12-implementation-milestones), and [open measurement decisions](#14-decisions-to-close-with-measurements).
+- [Accuracy criteria](#11-diagnostics-and-acceptance-criteria), [release validation](#12-release-validation), and [open measurement decisions](#14-decisions-to-close-with-measurements).
 
 The fixed design decisions are:
 
 | Concern | Decision |
 | --- | --- |
 | Application | TypeScript/Electron on Windows; one portable executable with bundled runtime and media/OCR tools |
-| Playback | League is the master clock; one mpv process plays the selected audio stream from either audio or video |
+| Playback | League is the master clock; FFmpeg decodes the selected stream and a hidden Web Audio renderer produces filtered, pitch-preserving audio |
 | Alignment | Automatic video-clock analysis with manual correction; manual anchoring for audio-only files |
 | Time mapping | One constant recording-to-game offset for continuous, uninterrupted match recordings |
-| Remembered reviews | Recording content identity plus track-specific timing, independent of filenames; automatic replay links only where validated |
+| Remembered reviews | Recording content identity plus track-specific timing, independent of filenames; choose the recording for each new viewer PID |
 | Setup | Detect configuration and connectivity separately; offer a backed-up edit on the user's action |
 | Release | Demonstrate accuracy and usability on the packaged Windows application; no promise of mathematically perfect synchronization |
 
@@ -45,12 +45,12 @@ The application must:
 - Align audio-only files manually, without waiting for automatic analysis.
 - Follow replay time, pause/resume, speed changes, forward/backward seeks, and repeated scrubbing without accumulating drift.
 - Remember each recording's selected audio track, alignment, manual corrections, and known file locations.
-- Recognize byte-identical recordings after renames, moves, or copies. Automatically restore a replay's recording only if a reliable automatic replay identity is available; this convenience is not a required feature.
+- Recognize byte-identical recordings after renames, moves, or copies. Require choosing a recording when the verified viewer PID changes.
 - Detect Replay API configuration and help the user enable it, including an optional automatic config edit.
 
 Outside scope: automatic audio-only anchoring, acoustic fingerprinting, speech recognition, recorder integration, recording-time metadata or sidecars, tournament-pause mapping, and edited/segmented recording timelines. These are not deferred milestones. A synchronized POV video player and simultaneous mixing of several audio tracks are not part of the first release; video frames are decoded internally for automatic alignment.
 
-Never ask users to locate or confirm a `.rofl` file. Automatic replay identification must fail quietly to the recording chooser, without blocking playback setup or requesting additional permissions solely for match identification.
+Never ask users to locate or confirm a `.rofl` file. Missing match identity adds no task; the verified viewer PID is sufficient to bind a chosen recording. Missing viewer identity prevents following until the Replay API supplies it.
 
 Use one constant recording-to-replay offset. Automatic alignment assumes the selected clock tick maps directly to replay time; it does not test the rest of the recording for consistency or drift. Manual correction remains available.
 
@@ -62,10 +62,10 @@ The [guided UI design](UX_DESIGN.md) specifies the accepted finite-state flow wi
 
 1. Launch the executable. Detect the League installation, inspect Replay API configuration, and show connection status.
 2. If needed, use **Enable replay connection** and restart the replay in League.
-3. Connect to the open replay automatically. Optional background match identification may restore a known recording; lack of match identity adds no user task.
+3. Connect to the open replay and verify its viewer PID automatically. Match identity is not required.
 4. Drop or select a recording, or choose a recent recording. If it has multiple audio tracks and no saved choice, preview and select the comms track.
 5. For video, run top-right clock detection and show progress; a failure opens manual alignment directly. For audio, open manual alignment immediately. Manual alignment remains available while video analysis runs.
-6. Once alignment is accepted, select **Start listening**. Bind the selected recording to this runtime session internally, follow League's controls, and save timing by recording/track locally.
+6. Once all playback prerequisites are ready, bind the chosen recording to the verified viewer PID and follow League automatically. Save timing by recording/track locally. **Mute comms** silences output while keeping volume and synchronization.
 
 ### Manual alignment and corrections
 
@@ -73,28 +73,29 @@ Use one offset field for both audio and video, with **Back 0.1 s** and **Forward
 
 The effective mapping remains `recordingSeconds = replaySeconds + offset`. Valid edits apply and persist immediately. Keep local partial input stable across replay updates and delayed acknowledgements. Invalid or out-of-range input never reaches playback. Preserve legacy timing by summing base offset and correction; new manual edits store that single value as the base offset with correction zero.
 
-Entering and leaving the editor preserves active listening. Start/Stop listening is explicit and available in place. The controller follows replay playback, pauses, and seeks while edits force synchronization to the new offset. Offline entry remains available, but auditioning the adjustment requires a connected replay. Never pause or seek League automatically.
+Entering and leaving the editor preserves active listening. **Done** closes the editor; accepting the initial zero offset is also valid. The controller follows replay playback, pauses, and seeks while edits force synchronization to the new offset. Offline entry remains available, but auditioning the adjustment requires a connected replay. Never pause or seek League automatically.
 
-Remove waveform generation, caches, preview IPC, playhead-pair anchoring, and recording seek controls. Audio-track audition remains available when choosing a track. A late automatic result must never overwrite a manual edit. Video recordings offer **Detect offset from video clock** in Adjust timing, also available as **Read game clock again** in Settings. Detection pauses listening and replaces the offset only on success; failure retains accepted timing.
+Manual alignment has no waveform generation/cache, waveform-preview IPC, playhead-pair anchoring, or recording seek controls. Audio-track audition remains available when choosing a track. A late automatic result must never overwrite a manual edit. Video recordings offer **Detect offset from video clock** in Adjust timing, also available as **Read game clock again** in Settings. Detection pauses listening and replaces the offset only on success; failure retains accepted timing.
 
 ### Subsequent reviews
 
-Choose or drop the recording, or select it from recent recordings. Verify its identity, restore its track and timing, and select **Start listening**. A renamed or moved file with matching contents reuses saved alignment. A missing recording shows **Locate file**. A validated automatic replay identity may select its known recording instead; never infer that match association from the last-used file or replay duration. Restored timing establishes a recording-to-game-clock mapping, not proof that the user opened the corresponding match in League.
+Choose or drop the recording, or select it from recent recordings. Verify its identity, restore its track and timing, and follow League automatically when the remaining prerequisites are ready. A renamed or moved file with matching contents reuses saved alignment. A missing recording shows **Locate recording**. Automatic replay-to-recording selection is not implemented; never infer that match association from the last-used file or replay duration. Restored timing establishes a recording-to-game-clock mapping, not proof that the user opened the corresponding match in League.
 
 ## 3. Stack and repository layout
 
 Use TypeScript, Electron, a bundled mpv process, FFmpeg/ffprobe, and Tesseract.js with local worker/WASM/language assets. Use electron-builder's Windows portable target. Pin dependency versions and native executable checksums when creating the build; record their licenses and distribution requirements.
 
-Implementation defaults: a small React/TypeScript renderer built with Vite, Vitest for deterministic TypeScript tests, and a versioned JSON library owned by the main process. SQLite is unnecessary for the initial library size. These defaults do not change the agreed playback architecture.
+Implementation defaults: a small React/TypeScript renderer built with Vite, Vitest for deterministic TypeScript tests, and a versioned JSON library owned by the main process. SQLite is unnecessary for the initial library size. Playback uses the existing FFmpeg/Electron facilities plus pinned `@lofcz/deepfilternet-web` model assets.
 
-Proposed layout; create directories only when their implementation lands:
+Current module layout:
 
 ```text
 src/
   main/          App lifecycle, session coordination, dialogs, library ownership
   preload/       Narrow, typed renderer interface
   renderer/      Review, alignment, setup, and diagnostics views
-  sync/          Utility-process entry, controller, replay and mpv adapters
+  sync/          Utility process, controller, replay and filtered/native engine adapters
+  audio/         Web Audio player, processing workers, timeline worklet and filter graph
   analysis/      Import, clock-frame extraction, OCR, hashing workers
   library/       Records, migrations, identity, persistence, relocation
   platform/      Windows installation/process discovery and config editing
@@ -111,14 +112,20 @@ Do not copy prior-art source without establishing its reuse license. Implement b
 
 ## 4. Processes and module interfaces
 
-The synchronization utility process owns replay observations and every mpv playback command. Renderer timers, OCR, and hashing must not run the playback loop.
+The synchronization utility process owns replay observations and controller decisions. `FilteredEngine` sends audio operations through the main process to `AudioHost`, which owns a hidden sandboxed renderer and a private loopback PCM transport. FFmpeg streams the chosen track; the hidden renderer owns preparation, the sample timeline, and audio output. The visible UI, OCR, and hashing do not run the playback loop.
 
 ```mermaid
 flowchart LR
-    UI[Renderer] <-->|Typed preload messages| Main[Main: session coordinator]
-    Main <-->|Intent and status| Sync[Sync utility process]
+    UI[Visible renderer] <-->|Typed preload messages| Main[Main: session coordinator]
+    Main <-->|Commands and snapshots| Sync[Sync utility process]
     Sync -->|Local HTTPS reads| League[League Replay API]
-    Sync <-->|Private named pipe| MPV[Bundled mpv]
+    Sync <-->|Private IPC: metadata| MPV[mpv with null output]
+    Sync <-->|Audio operations via Main| Host[AudioHost]
+    Host -->|Private loopback PCM stream| Audio[Hidden Web Audio renderer]
+    FFmpeg[FFmpeg decoder] --> Host
+    Audio --> Workers[Original and suppression workers]
+    Workers --> Worklet[Timeline worklet and filter graph]
+    Worklet --> Output[Audio output]
     Main <-->|Cancellable jobs| Analysis[Analysis and hash workers]
     Main --> Library[Local library and cache]
     Main --> Windows[Windows discovery and config editing]
@@ -128,23 +135,23 @@ Keep each module's interface small. Its implementation owns lifecycle, ordering,
 
 | Module | Interface responsibilities | Hidden implementation |
 | --- | --- | --- |
-| Review session | Select recording/track, enter preview, apply alignment, follow, stop; publish one session snapshot | Runtime generations, optional automatic match links, job coordination, persistence |
+| Review session | Select recording/track, manage preview ownership, apply alignment, bind automatically, mute; publish one session snapshot | Viewer PID association, recording-choice guard, job coordination, persistence |
 | Replay connection | Start/stop observations; report capabilities, playback samples, and connection errors | HTTPS trust, validation, polling, request deadlines, process-session changes |
 | Synchronization | Consume timestamped observations and user intents; emit playback actions and status | Clock estimation, state transitions, jump detection, rate correction, recovery |
-| Media engine | Load a track, observe position, pause/resume, set rate, seek, set volume, close | mpv lifecycle, pipe protocol, request IDs, event interpretation, timeouts |
+| Media engine | Load a track, observe position, pause/resume, set rate, seek, set volume, close | Metadata mpv lifecycle, private PCM transport, Web Audio preparation/output, request IDs and timeouts |
 | Media analysis | Probe, decode clock frames, estimate clock alignment, cancel; report progress/evidence | FFmpeg processes, OCR workers, crops, PTS conversion, fitting, cache |
-| Library | Resolve recording identity/location, restore track/timing, commit alignment, relocate | Streaming hashes, provisional imports, deduplication, migrations, optional automatic match links, crash recovery |
+| Library | Resolve recording identity/location, restore track/timing, commit alignment, relocate | Streaming hashes, provisional imports, deduplication, migrations, retained legacy records, crash recovery |
 | League setup | Discover installations, inspect config, enable on explicit user action, verify | Registry/process queries, encoding-preserving edits, backups, concurrent writes, elevation |
 
-At the synchronization module's seam, use real adapters for Replay API/mpv and trace/fake adapters for tests. Give the controller a monotonic clock dependency; do not add interchangeable backends without a concrete use.
+At the synchronization seam, use the Replay API and filtered engine adapters in production and controlled adapters in deterministic tests. Give the controller a monotonic clock dependency; do not add interchangeable backends without a concrete use.
 
 Messages carry a session generation, request/job ID, and relevant alignment revision. Validate payloads at process interfaces. The renderer can request supported actions, not execute arbitrary commands. Use Electron context isolation, a sandboxed renderer without Node access, and a restricted preload interface. Spawn bundled tools with argument arrays, not shell-interpolated filenames.
 
-The main process owns shutdown and child supervision. A crashed sync process must not leave mpv playing indefinitely. Prove parent/child cleanup and pipe-loss behavior in the Windows probe, including abnormal exit. Terminate owned children only. Closing the application ends playback; minimizing it preserves following. Use one application instance to avoid competing playback and library writers.
+The main process owns shutdown and child supervision. A crashed sync process must not leave the hidden audio renderer or native children playing indefinitely. Prove cleanup and pipe-loss behavior during Windows acceptance, including abnormal exit. Terminate owned children only. Closing the application ends playback; minimizing it preserves following. Use one application instance to avoid competing playback and library writers.
 
 ## 5. Time model and invariants
 
-All domain time values are finite seconds represented by numbers. Use explicit field names with `Seconds` suffixes and a monotonic clock for elapsed time. Wall-clock dates are only for logs and persistence. Replay and media sampling occur in the sync process's clock domain; do not compare raw monotonic timestamps from different processes without a defined translation.
+All domain time values are finite seconds represented by numbers. Use explicit field names with `Seconds` suffixes and a monotonic clock for elapsed time. Wall-clock dates are only for logs and persistence. Replay requests and engine observations are bracketed in the sync process's clock domain. Web Audio converts its output clock into a source position internally; do not compare raw monotonic timestamps from different processes without a defined translation.
 
 | Symbol | Meaning |
 | --- | --- |
@@ -159,8 +166,8 @@ The mapping is `m = g + o`; nominal recording playback rate is `r`. An anchor at
 
 Maintain these invariants:
 
-- Only one owner controls mpv: following, manual preview, or idle. The sync process mediates all three.
-- Following requires listening intent bound internally to the current runtime generation, loaded track, accepted alignment, and fresh replay state. Persistent match identity is optional; Start listening does not claim to verify the match.
+- Only one controller mode owns playback: following, track preview, or idle. The sync process mediates those modes.
+- Following requires the chosen recording bound to the verified viewer PID, selected track, accepted alignment, usable audio bounds, and fresh replay state. This association does not claim to verify match identity.
 - Pending/failed identity checks cannot silently authorize restoring an unrelated saved offset.
 - A new replay, media file, or track invalidates outstanding seeks, analysis application, and relevant clock estimates.
 - Stale messages and job results cannot change a newer session or alignment revision.
@@ -178,24 +185,19 @@ Validate conversion with generated files containing nonzero starts, negative pre
 
 ## 6. Replay API and active replay identity
 
-Use read-only requests to `https://127.0.0.1:2999/replay/playback`. The reference implementation models `time`, `speed`, `paused`, `seeking`, and `length`; verify the current schema and transition semantics in milestone 1. Handle an absent/unreliable seeking flag using observed clock discontinuities. Missing essential clock fields produce an unsupported-client state, not fabricated values.
+Use read-only requests to `https://127.0.0.1:2999/replay/playback`. The reference implementation models `time`, `speed`, `paused`, `seeking`, and `length`; validate current-client schema and transition semantics during real-League acceptance. Handle an absent/unreliable seeking flag using observed clock discontinuities. Missing essential clock fields produce an unsupported-client state, not fabricated values.
 
 Use a dedicated loopback HTTPS client, persistent connections, bounded responses, and explicit deadlines. Configure trust for Riot's documented certificate and validate the actual setup; never disable certificate verification globally or allow redirects to arbitrary hosts. Distinguish config failures, TLS errors, unsupported responses, and an absent replay in diagnostics.
 
-Start with a 50 ms polling interval (20 Hz), at most one playback request in flight, and no queued catch-up polls. Record monotonic send/receive times. Estimate a sample time from the request bracket while retaining uncertainty; its midpoint is not a guaranteed server timestamp. A separate watchdog expires stale state even if a request hangs. Poll process/session identity at connection and periodically at a lower frequency; do not query Windows process metadata 20 times per second.
+Use the implemented 50 ms polling interval (20 Hz), at most one playback request in flight, and no queued catch-up polls. Record monotonic send/receive times. Estimate a sample time from the request bracket while retaining uncertainty; its midpoint is not a guaranteed server timestamp. A separate watchdog expires stale state even if a request hangs. Poll process/session identity at connection and periodically at a lower frequency; do not query Windows process metadata 20 times per second.
 
-The API's process ID is not a persistent replay identifier. Automatic identification is an optional, bounded background operation:
+`/replay/game` must provide a positive safe-integer `processID`. The connection uses `process:<PID>` as its runtime identity, checks it on connection and every two seconds during steady playback, and rechecks immediately after a failed request or restart. Missing identity produces a connection error; it does not authorize playback. A failed playback request does not manufacture a new session ID.
 
-1. Obtain the game process ID from `/replay/game` where available.
-2. Read Windows process executable path, creation time, and command-line information using structured queries. Validate executable/install identity and avoid logging unrelated command-line contents.
-3. If the current League launch format reliably exposes a `.rofl` path, parse and verify that file, then hash its contents.
-4. Otherwise return identity unavailable and continue to the recording chooser. Never expose a replay-file picker, saved-replay selection, or replay-confirmation task.
+The selected recording is associated with that PID. Temporary API failures, output recovery, and power recovery preserve the association and timing. Resume automatically after verifying the same PID, obtaining fresh replay state, and restoring audio. A verified different PID stops the old binding and requires choosing a recording again, even if the same file's timing is saved. Normal seeks are not a new replay.
 
-Treat PID plus creation time and a local generation as runtime identity only. On Start listening, associate listening intent with the current generation internally. Process replacement or an ambiguous reconnect stops that intent; retain recording timing and require an explicit Start/Resume listening action, not replay-file confirmation. A positively detected different match clears any automatic recording selection and resolves its own link or shows Choose recording. Normal seeks are not evidence of a new match. Matching clock progression or replay length cannot prove match identity.
+PID is a viewer-process identity, not a persistent match identity. The implementation does not query process creation time, hash an active `.rofl`, or restore a recording through an automatic replay link. PID reuse or a match changing within the same viewer process is not independently detected; validate the actual League viewer lifecycle during real-client acceptance. Do not infer match identity from clock progression, replay duration, or the newest replay file.
 
-If supported launch paths are validated against the current League client, full `.rofl` SHA-256 can key an optional automatic replay link. A trusted region/match ID is another possible key if actually available. Query only the relevant process, parse Windows arguments correctly, verify executable/path/file identity, and recheck session generation after hashing. Do not infer identity from the newest file, the last downloaded replay, or a launch request that may not describe the active viewer. Do not request elevation or scan unrelated process command lines solely for this convenience. If the experiment cannot demonstrate reliable identification, omit persistent replay links from the release.
-
-The required baseline is the recording-only flow: select comms, restore its content-based timing, and Start listening to the current replay clock. It cannot automatically establish that the recording belongs to the viewed match; show the selected recording clearly without claiming a verified match.
+The baseline is recording-only: choose comms, restore content-based timing, and follow the verified viewer automatically. Show the selected recording clearly without claiming that its contents belong to the viewed match. Optional match identification is outside the current flow and must not add a replay-file picker or block recording setup.
 
 ## 7. Synchronization controller
 
@@ -219,12 +221,12 @@ Keep connection state, preview intent, and identity resolution as separate input
 1. Validate and timestamp replay and media observations. Reject obsolete generations and observations outside freshness limits.
 2. Detect pause, rate, and seek changes before steady-state interpolation. Do not extrapolate through a seek or across a state change.
 3. During unchanged playback, project replay time to the comparison instant: `gNow = gSample + r * elapsedSeconds`. Use a constant time when paused and a short bounded extrapolation horizon when running.
-4. Obtain the engine's audio position at the same instant as closely as its observation contract permits. Evaluate `audio-pts` as the driver-aware reference and retain `time-pos` for comparison. Notifications are asynchronous; timestamp receipt and bracket active queries.
+4. Obtain the Web Audio engine's position at the comparison instant. Its output timestamp, with output/base-latency fallback and measured compressor lookahead, maps the sample timeline to output time. Bracket observation requests in the utility process and retain uncertainty. This estimate does not certify downstream physical latency.
 5. Compute `error = desiredMediaPosition - observedAudioPosition`. Ignore errors within the larger of the tuned deadband and observation uncertainty.
-6. For sustained small errors, apply bounded proportional rate correction, returning to nominal as error clears. Positive error means audio is behind and should advance faster. Start experiments with a 25 ms deadband and a maximum adjustment of ±2% of nominal rate.
+6. For sustained small errors, apply bounded proportional rate correction, returning to nominal as error clears. Positive error means audio is behind and should advance faster. The current defaults use a 25 ms deadband and maximum adjustment of ±2% of nominal rate; these remain subject to physical validation.
 7. If correction cannot return to the acceptance range promptly, perform one deliberate resynchronization. Repeated corrections without convergence enter recovery/error instead of an endless audible loop.
 
-Begin with a 300 ms maximum age since the last trustworthy replay observation and an independent watchdog. Tune deadlines against the audible stop target, including buffered audio. Deadband, persistence windows, jump thresholds, and settling criteria are measured controller configuration, not scattered renderer constants.
+Use the current 300 ms maximum age since the last trustworthy replay observation and an independent watchdog. Tune deadlines against the audible stop target, including buffered audio. Deadband, persistence windows, jump thresholds, and settling criteria are measured controller configuration, not scattered renderer constants.
 
 ### Pauses, jumps, and rate changes
 
@@ -235,17 +237,17 @@ Detect jumps from a validated seeking flag and the residual against the prior re
 Recovery sequence:
 
 1. Suppress output, increment the playback generation, and keep only the latest desired target.
-2. Wait for a fresh, settled replay observation. Determine settling from measured clock progression and seeking behavior, including paused seeks; a single flag is insufficient until validated.
-3. Send an absolute precise seek to the mapped recording position. Serialize physical seek operations and coalesce new targets. A generation ID invalidates application results but does not cancel a command already executing inside mpv.
-4. Observe engine restart/seek state and fresh position feedback. A pipe reply alone does not complete recovery. Correlate global engine events with current load/seek state; do not assume they carry application generation IDs.
-5. Recompute the target because League may have advanced during decoding. Use a bounded retry/convergence policy established by the probe; remain silent with an actionable error if recovery cannot converge.
+2. Use a fresh replay observation that is no longer marked seeking. Production overrides the controller's settling interval to zero for fast recovery; validate the seeking flag and clock discontinuities against current League behavior, including paused seeks.
+3. Send an absolute precise seek to the mapped recording position. Serialize physical seek operations and coalesce new targets. Preparation revisions and sample epochs invalidate obsolete decoder, worker, and worklet results.
+4. Wait for original-audio prefill and fresh position feedback for the current seek. Suppression prepares independently and does not gate the original path. A command reply alone does not establish physical audible recovery.
+5. Recompute the target because League may have advanced during decoding. Use the controller's bounded retry/convergence policy; remain silent with an actionable error if recovery cannot converge.
 6. Resume only when alignment is within recovery tolerance, the latest generation still matches, and League is playing. Remain paused after a paused seek.
 
 On API loss, replay stall, media EOF, output-device change, engine exit, or system resume, invalidate affected estimates and recover deliberately. Suspend/resume must not reuse an extrapolation spanning sleep.
 
 Forward system suspend/resume events from Electron's main process to the sync
 process. On interruption, invalidate playback generations, queued playback intents,
-replay observations, and runtime listening intent before replacing the owned player.
+replay observations before replacing the owned player. Preserve the recording-to-viewer association and saved alignment.
 Terminate it without waiting for an IPC acknowledgment during suspend. Check long
 gaps in the utility's own timer before applying its parent-heartbeat deadline:
 Windows clocks include sleep, and a timer can run before the resume notification.
@@ -254,57 +256,26 @@ Keep the ordinary orphan watchdog active after that interruption has been handle
 Serialize restoration behind previously accepted work. Reload the unchanged
 recording paused, restore its stream identity, volume and preview position, and
 verify source version and timeline origin before publishing it. Keep saved offsets
-and corrections; require fresh replay observations and **Resume listening** before following again. Duplicate
+and corrections; resume automatically after a fresh replay observation verifies the same PID and the current seek succeeds. A changed PID requires recording selection. Duplicate
 or obsolete transitions must not restart playback. A failed restore must remain
 silent and allow retry or explicit reopening of a recording. Use the same paused
-restart path for **Retry playback** when the old media process is unavailable.
+restart path for **Retry audio** when the old media process is unavailable.
 
-### Output-device recovery
+### Output and audio preparation
 
-Subscribe to mpv's `audio-reconfig` event and observe `current-ao` and
-`audio-device-list` on every new IPC connection. Keep the event subscription even
-when property observations are available: a default-device switch can retain the
-same device list and driver name. Record the configured device and reported driver
-as diagnostics, without presenting either as proof of the actual endpoint or
-audible readiness.
+`FilteredEngine` reports Web Audio as the output driver. Audio-context interruption, observation failure, or a processing failure uses the serialized recovery path: stop obsolete work, reload the unchanged recording, restore track, effective volume, filters and alignment, and bind again after a fresh verified replay clock. Limit automatic output replacements to avoid restart loops; a failed recovery stays silent with **Retry audio** available. A verified PID change still requires recording selection. Track preview remains paused after recovery.
 
-On an unexpected reconfiguration, suppress output and invalidate pending output
-observations and seek completions before recovery. Coalesce notifications for the
-same recovery. Load, track selection, filter/rate changes, and explicit output
-reloads can themselves emit this event; associate those expected notifications
-with the bounded operation and verify its final state. Never restart the player
-recursively in response to its own initialization events.
+Device diagnostics currently do not enumerate Web Audio endpoints or prove which physical device is active. Native mpv still subscribes to reconfiguration events for its metadata engine, but its null output is not the audible path. Real default-device switches, USB/Bluetooth removal, and format changes need Windows acceptance; document whether Electron reconnects automatically or requires retry.
 
-Verify the selected audio stream, usable output driver, fresh position, and paused
-state before declaring restoration ready. A missing output or an unintended null
-driver is an error even if the media clock advances. When no output exists, use a
-bounded paused file reopen or player replacement; an `ao-reload` acknowledgment
-cannot establish that an output was created. A failed attempt stays silent with
-**Retry playback** available. Preserve the saved recording alignment and volume.
-Initially permit at most two automatic output replacements in ten seconds; a
-further failure stays silent and asks for a stable device and deliberate retry.
-Explicit retry or reopening after failure resets that budget. Tune the limit from
-device tests, keeping protection against an automatic restart loop.
+Launch metadata mpv with user configuration and video rendering disabled, a private IPC connection, and null audio output. Map ffprobe stream identity to mpv's actual track identifiers; do not assume numeric IDs match. Its verified origin remains the canonical coordinate for OCR and FFmpeg decoding.
 
-Following may resume only after a fresh replay observation and verified seek to
-the current target. Device-only recovery may retain a separately valid runtime
-replay binding; an ambiguous session change requires **Resume listening**. Deliberate
-preview remains paused until the user resumes it. Revalidate any measured device
-latency compensation after a change instead of modifying the content offset.
+FFmpeg streams 48 kHz stereo PCM. Independent workers prepare original audio and DeepFilterNet3 mono audio with bounded read-ahead. After a seek, discard previous working buffers and begin output when original samples are prefilled. Suppression warms from source history, corrects the pinned model's 1,440-sample delay, and fades in over 50 ms at the same source position. No disk cache or retained prepared sections are used. Noise suppression failure leaves original audio available and reports the failure beside the filter controls.
 
-Test expected versus unexpected notifications, duplicate bursts, events during
-seek/replacement, absent output, failed restoration, and a default-device switch
-with unchanged property values. Real Windows acceptance must also cover USB and
-Bluetooth removal/reconnection, output-format changes, and physical audible
-behavior; synthetic events and the null test driver cannot establish those results.
+One worklet timeline supplies original and suppressed paths. Waveform similarity overlap-add preserves pitch at supported rates. The filter graph provides radio voice with the prototype's fixed +12 dB gain, stereo position, smooth gain changes, and a protection compressor. Suppression edits prepare independently without pausing playback; ordinary graph changes apply immediately.
 
-### Media engine configuration
+The visible controls are **Radio voice**, **Noise suppression**, and **Sound position**, each with a toggle and slider below volume and in Settings → Recording. Keep the endpoints/defaults in `src/shared/filters.ts`; show plain endpoint labels without percentages or technical units. Mute uses a fixed-size speaker icon beside volume, an accessible action label and tooltip, and a saved flag separate from the saved volume. Muting keeps synchronization active.
 
-Launch pinned bundled mpv with user configuration disabled, video rendering disabled, a private named pipe, explicit pitch correction, and shared audio output so League can also produce sound. Map ffprobe stream identity to the engine's actual track identifiers; do not assume their numeric IDs match.
-
-Keep draining pipe events, bound pending commands, assign request IDs, and distinguish load success, seek acknowledgement, seek completion, and usable output position. Reject invalid/unavailable `audio-pts` during startup/seeking instead of converting it to zero. Preview defaults to 1× playback.
-
-Start with default buffers and tune only when transition measurements justify it. Driver-aware timestamps may already account for buffering; do not subtract guessed latency twice. Residual device correction must be measured, separate from content alignment, and revalidated after device/rate changes.
+Keep driver/output estimates separate from content alignment. Compressor lookahead is measured by the graph; downstream device timing remains a physical acceptance question.
 
 ## 8. Import and automatic video alignment
 
@@ -326,7 +297,7 @@ Use one visible clock tick. The recording may start after game start, end before
 2. Use the supported normalized crop for the top-right game clock. Enlarge the crop and OCR digits/colon; require a complete `mm:ss` reading with valid seconds and confidence at least 40/100.
 3. When sparse samples show the clock advancing by one second, narrow that interval. Request the actual next decoded frame after each candidate frame until two **consecutive frames** show `s` and `s + 1`. An unreadable intervening frame cannot be skipped when constructing the pair. Use actual presentation timestamps, including variable frame rates and nonzero stream origins.
 4. Set `midpoint = (beforeMediaSeconds + afterMediaSeconds) / 2`. Assume that midpoint corresponds exactly to replay time `s + 1`, and set `offset = midpoint - (s + 1)`.
-5. Apply and save the offset automatically, subject to the existing media/track/revision guards. Keep playback paused until the user selects **Start listening**. Offer **Adjust timing** for manual corrections.
+5. Apply and save the offset automatically, subject to the existing media/track/revision guards. Begin following automatically once the selected track, bounds, and fresh verified viewer are ready. Offer **Adjust timing** for manual corrections.
 
 For example, frames at recording times `1:05.030` and `1:05.040` showing `0:59` and `1:00` produce an anchor at recording `1:05.035` / replay `1:00`, hence offset `+5.035 s`.
 
@@ -373,18 +344,18 @@ Use a versioned library document with these logical records. Field spelling may 
 
 | Record/key | Required data |
 | --- | --- |
-| Optional automatic replay link, keyed by validated replay identity | Preferred recording hash and audio track, provenance of automatic identity, revision; omitted when reliable automatic identification is unavailable |
+| Retained legacy library | Earlier replay-keyed records preserved for migration/recovery; they do not authorize automatic recording selection |
 | Media, keyed by SHA-256 | Byte size, known paths/file versions, probed streams, canonical timeline metadata, preferred audio track and preference revision, analysis cache references |
 | Recording timing, unique by media hash + audio stream identity | Base offset, manual correction, source (`manual` or `video-clock`), optional anchor/evidence reference, alignment revision, created/updated dates |
 | Path observation | Path, volume/file identifier where available, size, modification/change timestamps, verified digest and verification date |
 | Analysis cache entry | Media hash, relevant streams/crop, algorithm and timeline versions, evidence/result or derived-file location |
-| Settings | Selected installation, user-added media folders, volume, diagnostic preferences; no recording-time metadata |
+| Settings | Selected installation, user-added media folders, volume, mute, sound filters, diagnostic preferences; no recording-time metadata |
 
 A track is identified within the content-hashed file, with stream index and relevant metadata validated against mpv when loading. Choosing another recording or track must not delete previous timing or corrections.
 
 Remember each recording's preferred track independently of its alignment. Reopening an unaligned recording should restore its track with **Set an alignment** still required; it must not fall back to a previously aligned track. A late hash may reveal a saved track choice for a renamed recording. Restore that choice only if no newer track selection or manual anchor was made during identification.
 
-The recording's content identity owns reusable analysis and location history. Recording hash plus audio track owns the offset and correction. This relies on the existing scope of one continuous, single-match recording with no original-match pauses. An optional replay link selects the recording; it does not own its timing. Encode timing keys as an unambiguous tuple of media hash and track identity.
+The recording's content identity owns reusable analysis and location history. Recording hash plus audio track owns the offset and correction. This relies on the existing scope of one continuous, single-match recording with no original-match pauses. Retained legacy replay associations do not own current recording timing or select a recording automatically. Encode timing keys as an unambiguous tuple of media hash and track identity.
 
 Migrate the existing replay-keyed library without deleting legacy data: retain a recoverable copy; promote unique or equivalent timing records for a media/track pair; if multiple legacy records conflict, preserve them and require **Check timing** when that recording is opened. Do not choose an arbitrary replay's offset, and do not ask the user to select a `.rofl` to resolve the conflict. Existing manually asserted replay links are not verified automatic identities and must not authorize automatic selection.
 
@@ -420,17 +391,17 @@ A hash recognizes a discovered file; it cannot locate an arbitrary moved file on
 
 ### Persistence
 
-Store library data and caches in a stable application data directory, independent of the executable's extraction path, name, or version. Use one writer in the main process and schema migrations. Caches are disposable; recording timing, manual corrections, and any optional automatic links are durable data.
+Store library data and caches in a stable application data directory, independent of the executable's extraction path, name, or version. Use one writer in the main process and schema migrations. Caches are disposable; recording timing, manual corrections, preferences, and retained legacy records are durable data.
 
 Write a validated snapshot to a temporary file in the same directory, flush it, and commit with a tested Windows replacement procedure while retaining a recoverable previous snapshot. Validate on startup and recover from interrupted writes without discarding the last valid library. Test actual filesystem behavior rather than assuming rename provides every required guarantee. Never overwrite an unrecognized future schema.
 
-Persist manual edits promptly and show unsaved/error state on failure. Bound caches and logs separately from library records. Eviction must never erase an offset or optional replay link.
+Persist manual edits promptly and show unsaved/error state on failure. Bound caches and logs separately from library records. Eviction must never erase saved timing or preferences.
 
 For each update, clone the last committed state, apply and validate the transaction, write the recoverable backup and new snapshot, then publish the committed revision. On failure, retain the previous durable state and the unsaved session edit for retry. Completing an import must atomically promote its provisional identity, reconcile the latest applicable edits, and remove the pending import; a crash cannot leave the offset referring only to a deleted temporary ID. Exercise recovery both before and after the final replacement.
 
 Retain failed-to-save drafts by recording/track or provisional-import key across selection changes; a single active-view field is insufficient. Applying the audible change and saving it are independent outcomes: a player error must not discard the edit, and a disk error must not prevent auditioning it. On normal exit, stop accepting edits, silence playback, drain already accepted commands and durable writes, then close workers. If saving still fails, show retry/discard choices rather than silently reporting success. Discard requires an explicit user action; disposable cache completion must not block exit indefinitely.
 
-Include recording/track choices, volume, media folders, and installation selection in the same visible save/retry/exit workflow. Keep their latest intended values available after a failed write. Retrying an older preference must retain its original revision so it cannot override a newer alignment or selection. Migrate existing association-based preferences without changing offsets or corrections.
+Include recording/track choices, volume, mute, sound filters, media folders, and installation selection in the same visible save/retry/exit workflow. Keep their latest intended values available after a failed write. Retrying an older preference must retain its original revision so it cannot override a newer alignment or selection. Migrate existing association-based preferences without changing offsets or corrections.
 
 ## 10. Replay API setup
 
@@ -483,67 +454,13 @@ marker recording, an annotation format, and a report command. Use its raw eviden
 and uncertainty bounds alongside duration/dropout accounting. Fixture success and
 descriptive sample percentiles do not replace independent review of real captures.
 
-## 12. Implementation milestones
+## 12. Release validation
 
-### Milestone 1: portable feasibility probe
+The workflow, recording library, video alignment, guided setup, filters, and automatic playback are implemented. The remaining work is validation and distribution, not repeating an initial implementation sequence. Use the matrix below for coverage and [STATUS.md](tests/acceptance/STATUS.md#remaining-acceptance-work) for outstanding gates and recorded results.
 
-Build the smallest packaged app that opens media, accepts a numeric offset, reads the replay clock, controls bundled mpv, and records timing traces. Include packaging paths for all planned native/OCR resources immediately.
+Dependency acquisition, OCR/model assets, notices, and packaging are reproducible through `scripts/`. Bundle runtime resources locally and reject missing, changed, or stale inputs. Retain full license texts, source provenance, and checksums; collected notices do not establish complete corresponding-source coverage or signing readiness.
 
-Deliverables:
-
-- TypeScript/Electron build, process supervision, narrow preload messages, and a Windows portable artifact.
-- Basic Replay API/mpv adapters, clock tracing, manual offset controls, and an audible measurement harness.
-- Current-client schema/seek/stall traces, ffprobe-to-mpv timestamp/track mapping fixtures, and audio-output observations.
-- Installation discovery with the API disabled; bounded automatic replay identification experiment with recording-only fallback.
-- Initial OCR samples and an original POV/replay comparison to characterize the midpoint assumption.
-- A result document under `tests/acceptance/` listing tested versions, measurements, unresolved items, and initial controller/OCR parameters.
-
-Exit: the exact artifact starts on a clean Windows machine and measurements establish a credible route to the timing gates. Resolve material clock, media-timeline, or packaging problems before the full workflow. Unavailable automatic replay detection uses the planned fallback and does not block the product.
-
-### Milestone 2: synchronization and preview ownership
-
-Implement controller states, time model, latest-target seeking, pause/rate following, drift correction, stale watchdog, output limits, and preview ownership. Test through the module interface with controllable time, jittered traces, and delayed/out-of-order replies. Integrate the real engine, including compressed seeks and child failures.
-
-Exit: the probe meets measured following/recovery targets through a full replay session and remains responsive under synthetic analysis load. Track audition and following cannot fight for playback control; timing edits preserve active following.
-
-### Milestone 3: complete review workflow
-
-Implement in this order:
-
-1. Import/probing, stream selection, track audition, live offset controls, and status/error actions.
-2. Recording-based library schema/migrations, background hashing, provisional-import reconciliation, per-track timing, and file relocation; optional automatic replay links only if validated.
-3. Video crop detection, consecutive-frame midpoint alignment, versioned cache, and manual-override protection.
-4. Installation chooser, configuration inspection/edit/backup workflow, restart guidance, and diagnostics view.
-
-Discovery experiments already exist from milestone 1; this milestone integrates them into the workflow. Modules can be developed independently, but persisted IDs, timeline conventions, and revision semantics must agree before integration.
-
-Exit: a user can configure the connection, import/align either media type, review in League, close/reopen the app, and restore renamed or relocated media without a terminal or repeated alignment.
-
-### Milestone 4: release validation and distribution
-
-Automate Windows x64 builds with locked dependencies, verified native downloads, license/distribution materials, and artifact smoke checks. Include Electron, mpv, FFmpeg/ffprobe, OCR and trust resources; runtime dependency downloads are not allowed. Launch bundled tools independently of `PATH` and personal player settings. Prepare code signing for public distribution.
-
-Keep dependency acquisition and notice preparation reproducible in `scripts/`.
-Collect production npm notices plus explicit notices for code and models already
-embedded in upstream bundles. Pin supplemental source URLs and checksums, record
-their audited dependency versions, and preserve provenance qualifications. Generate
-an offline notice page and a machine-readable inventory under `resources/notices/`;
-packaging must reject missing, changed, or stale inputs. Preserve the previous
-generated inventory if acquisition fails. Give users a fixed **Third-party notices**
-action that works offline. Track complete corresponding-source and linked-component
-coverage separately from the presence of license texts.
-
-Verify the final portable payload as well as the staging directory: inspect archive
-paths before extraction, reject unexpected entries, compare every extracted file
-with the staged build, and bind the result to the executable's SHA-256. Include the
-runtime libraries, native documentation, and generated notices in that comparison.
-Keep the resulting verification record beside the artifact. Extraction does not
-exercise the Windows launcher, DLL loader, config helper, or physical audio path;
-those remain separate execution tests below.
-
-Run the exact release artifact as a standard user on a clean supported Windows machine, including first launch without network access for dependency downloads. Verify persistence across executable renames/replacement and upgrades. The executable may unpack resources; library data must live outside that temporary location.
-
-Exit: required automated and real-client checks pass, measured limits/tested versions are documented, and the downloadable executable completes the normal workflow without developer tools.
+Verify the final portable payload against the staging directory and bind the record to its SHA-256. Then execute that exact artifact as a standard user on clean supported Windows, including offline first launch and library persistence across executable replacement. Payload inspection does not exercise the launcher, DLL loader, config helper, or physical audio path.
 
 ### Automated Windows validation
 
@@ -588,49 +505,32 @@ from clean-machine/offline first launch, real-League integration, and physical
 audio timing. A successful automated run establishes only the cases it actually
 executes; the latter gates still require their own evidence.
 
-### Implementation work packages
-
-Use these as dependency-ordered implementation tasks. File references identify the current module boundaries; finish missing behavior in those modules rather than creating a second implementation. A package is complete only after its acceptance evidence exists, even if its source code is already present.
-
-| Package | Modules and concrete deliverable | Dependency and completion evidence |
-| --- | --- | --- |
-| 1. Portable foundation | `src/main/`, `src/preload/`, `src/shared/`, `scripts/`, `resources/`: typed IPC, validated commands, one app instance, bundled resources, child ownership, and portable packaging | First. Exact executable launches offline as a standard Windows user; no Node/npm or media-tool installation; owned children stop after exit/crash |
-| 2. Replay observations and identity | `src/sync/replay.ts`, `src/platform/`, `src/main/review-session.ts`: trusted loopback requests, bounded polling, stale detection, runtime generations, listening intent, and optional validated automatic replay discovery | Requires package 1. Current-client traces establish field/seek semantics; recording-only following works without persistent replay identity; changed/ambiguous sessions stop old listening intent without requesting a replay file |
-| 3. Player and synchronization | `src/sync/controller.ts`, `engine.ts`, `mpv-ipc.ts`: canonical timeline, selected-track playback, fresh clock comparison, latest-target recovery, pitch-preserving rates, and preview ownership | Requires packages 1–2. Generated media and real engine tests cover timestamp conversion and stale completions; Windows measurements establish transition and following behavior |
-| 4. Manual review | `src/analysis/`, `src/main/review-session.ts`, `src/renderer/`: cancellable probing, track audition and one live offset with keyboard and Back/Forward controls | Requires package 3. Audio and video can be manually aligned; offline entry works; live adjustments have the specified sign; switching sessions cancels obsolete jobs |
-| 5. Durable library | `src/library/`, `src/analysis/hash-*`, `src/main/alignment-edits.ts`, `src/main/quit.ts`: streaming SHA-256, provisional reconciliation, recording/track timing, relocation, legacy migration, optional automatic links, and save-error recovery | Requires packages 2 and 4. Restart, rename, move, duplicate import, changed content, conflicting legacy offsets, failed writes, and exit with unsaved edits preserve recording timing and newest accepted manual intent |
-| 6. Automatic video alignment | `src/analysis/video-clock.ts`, `clock-fit.ts`, `ocr-*`, `src/library/clock-cache.ts`: bounded top-right tick search, consecutive-frame decoding, automatic midpoint alignment, cache validation, and revision-safe application | Requires packages 4–5. Real original-POV/replay pairs establish offset accuracy and false-acceptance behavior; unsupported cases fall back to manual review without changing an accepted alignment |
-| 7. Guided connection setup | `src/platform/`, `src/main/league-setup.ts`, `src/renderer/setup.tsx`, `resources/scripts/`: installation discovery, independent config/connectivity status, scoped enable/restore, backup verification, and permission handling | Discovery starts in package 2; complete alongside packages 4–6. Windows tests cover byte preservation, locks, concurrent changes, elevation accepted/declined, and guarded restore; ordinary review stays unelevated |
-| 8. Release validation | `scripts/`, `tests/integration/`, `tests/acceptance/`: repeatable Windows builds, native/resource integrity checks, notices and source obligations, signing preparation, user workflow tests, and audible measurements | Requires packages 1–7. Exact artifact completes the clean-Windows workflow and the documented timing gates; publish supported versions/devices and measured limits with its checksum |
-
-Use deterministic tests for controller decisions and race conditions, real processes/files for adapter and persistence behavior, and the packaged Windows app for platform and audible claims. Assign each discovered failure to the responsible package and add a reproducer where practical. Do not add unrelated product features while closing these gates.
-
 ## 13. Verification matrix
 
 | Area | Required cases |
 | --- | --- |
 | Controller | Normal progression, jitter/late replies, short/long jumps, paused seeks, rapid scrub, rate transitions, stale/hung requests, replay replacement, long-session drift |
+| Filters/audio output | Radio/noise/position toggles and endpoints, default settings, combined filters, original-audio fallback, suppression edits without stopping, fixed mute icon layout, saved mute/filter preferences, hidden-renderer failure |
 | Engine/lifecycle | WAV/compressed audio; MP4/MKV tracks; exact seeks; delayed completion; pipe disconnect; startup/load/engine failure; output-device change; parent crash; sleep/resume |
 | Timestamps | VFR, nonzero/negative timestamps, A/V start offsets, codec priming, track playable ranges, recording starting mid-match |
 | OCR | Resolutions/HUD scales, compression, timer rollover, overlays/occlusion, missing clock, wrong digits/crop, loading screens, partial and short recordings, consecutive VFR frames, unreadable intervening frames, immediate acceptance without later checks, bounded search and automatic application |
 | Analysis reuse | Rename/cache hit, obsolete crop preferences removed without losing timing, changed stream/origin/crop/runtime, explicit re-run, corrupt cache, cache write failure, provisional identity completion in either order, source changed during analysis |
-| Manual workflow | Audio-only immediately available, direct video-to-manual fallback without frame/crop controls, signed offset entry, live step direction, edit during OCR, failed re-run retains alignment, explicit Start/Stop and Done preserve intent |
+| Manual workflow | Audio-only immediately available, direct video-to-manual fallback without frame/crop controls, signed offset entry, live step direction, edit during OCR, failed re-run retains alignment, automatic playback, Done preserves listening, mute retains volume/synchronization, PID change requires recording choice |
 | Library | Restart/upgrade, rename/move/copy/duplicates, missing file, same-name replacement, changed content, interrupted/concurrent hashing, provisional merge, track-specific offsets, interrupted writes/migration recovery, unsaved edits across switches and exit |
 | Setup | Enabled/disabled/missing key, missing section/file, multiple/custom installations, malformed/duplicate config, encodings/line endings, permissions/locks, concurrent edits, elevation declined, backup/readback, enabled config without replay |
 | Package | Offline first launch, standard user, spaces/non-ASCII/long filenames, minimization, concurrent analysis, corrupt/unsupported input, resource discovery, executable update/relaunch |
 
-Run deterministic tests on normal development platforms and Windows integration/package tests on Windows. Real-client testing requires installed League, compatible replays, original recordings, and a documented output setup. Synthetic fixtures cannot certify current-client behavior or audible timing. Do not complete a milestone/release gate based solely on mocks or successful command logs.
+Run deterministic tests on normal development platforms and Windows integration/package tests on Windows. Real-client testing requires installed League, compatible replays, original recordings, and a documented output setup. Synthetic fixtures cannot certify current-client behavior or audible timing. Do not complete a release gate based solely on mocks or successful command logs.
 
 ## 14. Decisions to close with measurements
 
 | Question | Where resolved | Required fallback/result |
 | --- | --- | --- |
-| Does playback state follow settled pictures accurately enough? | Milestone 1 replay traces/output capture | Validated settling/freshness rules, or revise approach explicitly before claiming accuracy |
-| Can the active `.rofl` path be identified reliably without user intervention? | Milestone 1 Windows process experiment | Use automatic replay links only if validated; otherwise omit the feature and choose recordings directly, with no `.rofl` picker |
-| How do FFmpeg PTS, mpv time, track IDs, and audible output relate? | Milestone 1 fixtures/output measurement | One tested conversion/observation contract; no guessed latency subtraction |
+| Does playback state follow settled pictures accurately enough? | Real-League traces/output capture | Validated settling/freshness rules, or revise approach explicitly before claiming accuracy |
+| How do FFmpeg PTS, mpv time, track IDs, and audible output relate? | Timeline fixtures/output measurement | One tested conversion/observation contract; no guessed latency subtraction |
 | How accurate is the midpoint-to-replay assumption? | Original-video/replay comparison | Characterize error; manual correction remains available without gating automatic alignment |
-| Which controller/OCR thresholds meet acceptance? | Milestones 1–3 fixtures/real sessions | Versioned parameters with results; no silent relaxation of timing targets |
-| Can parent failure leave native playback running? | Milestone 1 packaged lifecycle test | Tested ownership/cleanup before general use |
+| Which controller/OCR thresholds meet acceptance? | Controller/OCR fixtures and real sessions | Versioned parameters with results; no silent relaxation of timing targets |
+| Can parent failure leave audio output or native children running? | Packaged lifecycle test | Tested ownership/cleanup before general use |
 | Do recordings need a clock-rate term? | Long-match validation | Document unsupported drift or explicitly design/validate an extension; retain constant offset for conforming files |
 
 Keep these as explicit implementation questions. They do not justify adding automatic audio anchoring, recording-time metadata, or other excluded features.
