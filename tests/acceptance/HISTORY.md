@@ -132,4 +132,3 @@ Half the chosen frame interval describes sampling resolution; it is not measured
 HUD-to-Replay-API accuracy. Search stops at the first readable adjacent tick, within
 its 300-frame / 180-second budget. Original POV/replay pairs are still required to
 measure the midpoint assumption, microphone/picture delay, and false readings.
-
